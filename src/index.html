@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Soundboard</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+    <span class="orb orb-4"></span>
+  </div>
+  <div class="app-shell">
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="titlebar-left" data-tauri-drag-region>
+      <div class="app-logo" data-tauri-drag-region>
+        <canvas id="titlebar-viz" data-tauri-drag-region class="titlebar-viz" width="20" height="20"></canvas>
+      </div>
+      <div class="app-title" data-tauri-drag-region>Soundboard</div>
+    </div>
+    <div class="titlebar-right">
+      <button class="title-btn" id="btn-minimize" title="Minimize">
+        <svg width="10" height="10" viewBox="0 0 10 10"><rect y="4.5" width="10" height="1" fill="currentColor"/></svg>
+      </button>
+      <button class="title-btn" id="btn-maximize" title="Maximize">
+        <svg width="10" height="10" viewBox="0 0 10 10" id="maximize-icon">
+          <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" fill="none"/>
+        </svg>
+      </button>
+      <button class="title-btn close-btn" id="btn-close" title="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0L10 10M10 0L0 10" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="app-layout">
+    <div class="nav-sidebar" id="nav-sidebar">
+      <button type="button" class="nav-collapse-btn" id="nav-collapse-btn" title="Collapse sidebar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <button type="button" class="nav-item active" id="nav-soundboard" data-view="soundboard" title="Soundboard">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span class="nav-label">Soundboard</span>
+      </button>
+      <button type="button" class="nav-item" id="nav-tts" data-view="tts" title="Text-To-Speech">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+        <span class="nav-label">Text-To-Speech</span>
+      </button>
+      <button type="button" class="nav-item" id="nav-music" data-view="music" title="Music">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.4"/></svg>
+        <span class="nav-label">Music</span>
+      </button>
+      <button type="button" class="nav-item" id="nav-live" data-view="live" title="Live Voice">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+        <span class="nav-label">Live Voice</span>
+      </button>
+      <button type="button" class="nav-item nav-settings-item" id="nav-settings-btn" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span class="nav-label">Settings</span>
+      </button>
+    </div>
+
+    <div class="main-content view-panel" id="view-soundboard" style="display:flex;">
+      <div class="topbar">
+        <div class="search-wrap">
+          <span class="search-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>
+            </svg>
+          </span>
+          <input type="text" id="search-input" class="search-input" placeholder="Search sounds..." />
+        </div>
+        <select id="category-filter" class="device-select" style="max-width:160px;"></select>
+        <button class="stop-all-btn" id="stop-all-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          Stop All
+        </button>
+        <button class="import-btn" id="yt-import-open-btn" title="Import a clip from a YouTube URL">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 4v11"/><path d="M7.5 11.5L12 16l4.5-4.5"/><path d="M4 18h16"/>
+          </svg>
+          Import Clip
+        </button>
+        <span class="sound-count-pill" id="sound-count-pill"></span>
+      </div>
+
+      <div class="now-playing-bar" id="now-playing-bar"></div>
+
+      <div class="sounds-grid" id="sounds-grid"></div>
+
+      <div class="empty-state" id="empty-state">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+        <p></p>
+      </div>
+    </div>
+
+    <div class="main-content view-panel" id="view-tts" style="display:none; flex-direction:column; padding:20px; overflow-y:auto; gap:14px;">
+      <div class="topbar" style="justify-content:space-between;">
+        <div class="app-title" style="font-size:15px;">Text-To-Speech</div>
+        <span class="rvc-note" style="margin:0;">Powered by <strong>Flowery TTS</strong></span>
+      </div>
+
+      <textarea id="tts-text" class="form-input" rows="5" maxlength="2000" placeholder="Type what you want spoken… (max 2000 characters)" style="resize:vertical; font-family:inherit; font-size:13px; padding:12px;"></textarea>
+      <div class="rvc-note" style="margin-top:-8px; text-align:right;" id="tts-char-count">0 / 2000</div>
+
+      <div class="sidebar-section" style="margin:0;">
+        <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span>Voice</div>
+        <input type="text" id="tts-voice-search" class="form-input" placeholder="Search 850+ voices…" style="margin-bottom:8px;" />
+        <select id="tts-voice-select" class="device-select"></select>
+      </div>
+
+      <div class="sidebar-section" style="margin:0;">
+        <div class="toggle-row">
+          <span>Translate to English</span>
+          <div class="toggle" id="tts-translate-toggle"><div class="toggle-knob"></div></div>
+        </div>
+        <div class="volume-row" style="margin-top:8px;">
+          <span class="vol-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+          </span>
+          <input type="range" id="tts-speed" class="volume-slider" min="0.5" max="2" step="0.1" value="1" />
+          <span class="vol-label" id="tts-speed-label">1.0x</span>
+        </div>
+        <div class="volume-row" style="margin-top:8px;">
+          <span class="vol-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          </span>
+          <input type="range" id="tts-volume" class="volume-slider" min="0" max="200" step="5" value="100" />
+          <span class="vol-label" id="tts-volume-label">100%</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section" style="margin:0;">
+        <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span>AI Voice (RVC) — optional</div>
+        <select id="tts-rvc-voice-select" class="device-select">
+          <option value="">None (use Flowery voice as-is)</option>
+        </select>
+        <div class="volume-row" style="margin-top:8px;">
+          <span class="vol-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+          </span>
+          <input type="range" id="tts-rvc-pitch" class="volume-slider" min="-12" max="12" step="1" value="0" />
+          <span class="vol-label" id="tts-rvc-pitch-label">0</span>
+        </div>
+      </div>
+
+      <div class="rvc-backend-row">
+        <button type="button" class="import-btn" id="tts-generate-play-btn">🔊 Generate &amp; Play</button>
+        <button type="button" class="import-btn" id="tts-generate-save-btn">💾 Generate &amp; Save as Sound</button>
+      </div>
+      <div class="conv-progress" data-kind="tts" style="display:none;">
+        <div class="conv-progress-head">
+          <span class="conv-progress-label"></span>
+          <button type="button" class="import-btn conv-progress-cancel">Cancel</button>
+        </div>
+        <div class="conv-progress-track"><div class="conv-progress-fill"></div></div>
+      </div>
+      <div class="rvc-backend-status" id="tts-status" style="margin:0; display:none;"></div>
+    </div>
+
+    <div class="main-content view-panel" id="view-music" style="display:none; flex-direction:column; padding:20px; overflow-y:auto; gap:14px;">
+      <div class="topbar" style="justify-content:space-between;">
+        <div class="app-title" style="font-size:15px;">Music Converter</div>
+        <span class="rvc-note" style="margin:0;">Convert a full song's vocals to an AI voice, keeping the instrumental</span>
+      </div>
+
+      <div class="sidebar-section" style="margin:0;">
+        <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></span>1. Source</div>
+        <div class="rvc-backend-row" style="margin-bottom:8px;">
+          <button type="button" class="import-btn music-source-tab active" id="music-source-yt-btn" data-source="youtube">YouTube URL</button>
+          <button type="button" class="import-btn music-source-tab" id="music-source-file-btn" data-source="file">Local File</button>
+        </div>
+
+        <div id="music-source-youtube">
+          <div class="rvc-add-row">
+            <input type="text" id="music-yt-url" class="form-input" placeholder="Paste a YouTube URL…" />
+            <button type="button" class="import-btn" id="music-yt-fetch-btn">Fetch</button>
+          </div>
+          <div id="music-yt-preview" style="display:none; margin-top:8px;">
+            <div class="rvc-note" id="music-yt-info"></div>
+            <button type="button" class="import-btn" id="music-yt-use-btn" style="margin-top:6px;">Download &amp; Use This Song</button>
+          </div>
+        </div>
+
+        <div id="music-source-file" style="display:none;">
+          <button type="button" class="import-btn" id="music-file-choose-btn">Choose Audio File…</button>
+        </div>
+
+        <div class="rvc-backend-status ready" id="music-source-status" style="display:none; margin-top:8px;"></div>
+      </div>
+
+      <div class="sidebar-section" style="margin:0;" id="music-convert-options">
+        <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span>2. AI Voice</div>
+        <select id="music-rvc-voice-select" class="device-select"></select>
+        <div class="volume-row" style="margin-top:8px;">
+          <span class="vol-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></span>
+          <input type="range" id="music-rvc-pitch" class="volume-slider" min="-12" max="12" step="1" value="0" />
+          <span class="vol-label" id="music-rvc-pitch-label">0 (Male ↔ Female)</span>
+        </div>
+        <div class="rvc-note">
+          Vocals are always separated from the instrumental automatically before conversion, then
+          remixed back afterward — so the background music stays untouched and only the singing
+          voice changes.
+        </div>
+      </div>
+
+      <div class="rvc-backend-row" id="music-convert-row">
+        <button type="button" class="import-btn" id="music-convert-btn">🎙️ Convert</button>
+      </div>
+      <div class="conv-progress" data-kind="music" style="display:none;">
+        <div class="conv-progress-head">
+          <span class="conv-progress-label"></span>
+          <button type="button" class="import-btn conv-progress-cancel">Cancel</button>
+        </div>
+        <div class="conv-progress-track"><div class="conv-progress-fill"></div></div>
+      </div>
+      <pre class="rvc-backend-log" id="music-convert-log" style="display:none;"></pre>
+      <div class="rvc-backend-status" id="music-convert-status" style="margin:0; display:none;"></div>
+
+      <div class="rvc-backend-row" id="music-result-row" style="display:none;">
+        <button type="button" class="import-btn" id="music-play-btn">▶️ Play</button>
+        <button type="button" class="import-btn" id="music-play-mic-btn" title="Play the converted song through your virtual mic as well">🎙️ Play through mic</button>
+        <button type="button" class="import-btn" id="music-save-btn">💾 Save as Sound</button>
+        <button type="button" class="import-btn" id="music-export-btn">⬇️ Export File…</button>
+      </div>
+    </div>
+
+    <div class="main-content view-panel" id="view-live" style="display:none; flex-direction:column; padding:20px; overflow-y:auto; gap:14px;">
+      <div class="topbar" style="justify-content:space-between;">
+        <div class="app-title" style="font-size:15px;">Live Voice Changer</div>
+        <span class="rvc-backend-status" id="live-status" style="margin:0;">Idle</span>
+      </div>
+
+      <div class="sidebar-section" style="margin:0;">
+        <div class="sidebar-label">Mode</div>
+        <select id="live-mode" class="device-select">
+          <option value="fx">Instant effects (almost no delay)</option>
+          <option value="rvc">AI voice (RVC, a few seconds of delay)</option>
+        </select>
+      </div>
+
+      <div id="live-fx-panel" style="display:flex; flex-direction:column; gap:14px;">
+        <div class="rvc-note">
+          <strong>Instant effects</strong> run inside the app, so your voice comes out with
+          very little delay and no Python or graphics card is needed. Pick a voice below and
+          start talking. Changes apply while you're live. Quality is best on clear speech;
+          extreme pitch settings sound more robotic.
+        </div>
+        <div class="sidebar-section" style="margin:0;">
+          <div class="sidebar-label">Voice</div>
+          <select id="live-fx-preset" class="device-select"></select>
+          <div class="volume-row" style="margin-top:8px;">
+            <span class="vol-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></span>
+            <input type="range" id="live-fx-pitch" class="volume-slider" min="-12" max="12" step="1" value="0" />
+            <span class="vol-label" id="live-fx-pitch-label">Extra pitch: 0</span>
+          </div>
+          <div class="toggle-row" style="margin-top:8px;">
+            <span>Also let me hear this voice locally (use headphones)</span>
+            <div class="toggle" id="live-fx-monitor-toggle"><div class="toggle-knob"></div></div>
+          </div>
+        </div>
+      </div>
+      <div id="live-rvc-panel" style="display:none; flex-direction:column; gap:14px;">
+      <div class="rvc-note">
+        Talk normally — your voice goes out through your Virtual Mic (Discord etc.) converted to the
+        AI voice below. This converts in short chunks rather than instantly, so expect roughly 1–3
+        seconds of delay. For no delay, switch Mode to Instant effects.
+      </div>
+
+      <div class="sidebar-section" style="margin:0;">
+        <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span>AI Voice</div>
+        <select id="live-rvc-voice-select" class="device-select"></select>
+        <div class="volume-row" style="margin-top:8px;">
+          <span class="vol-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></span>
+          <input type="range" id="live-rvc-pitch" class="volume-slider" min="-12" max="12" step="1" value="0" />
+          <span class="vol-label" id="live-rvc-pitch-label">0 (Male ↔ Female)</span>
+        </div>
+        <div class="sidebar-label" style="margin-top:10px;">Latency</div>
+        <select id="live-chunk-size" class="device-select">
+          <option value="600">Fast (0.6s chunks, needs a strong GPU)</option>
+          <option value="900" selected>Balanced (0.9s chunks)</option>
+          <option value="1200">Smooth (1.2s chunks, best quality)</option>
+        </select>
+        <div class="toggle-row" style="margin-top:8px;">
+          <span>Also let me hear the converted voice locally</span>
+          <div class="toggle" id="live-self-monitor-toggle"><div class="toggle-knob"></div></div>
+        </div>
+      </div>
+
+      </div>
+
+      <div class="rvc-backend-row">
+        <button type="button" class="import-btn" id="live-start-btn" style="border-color:#2ecc71; color:#7CFC00;">🎤 Start Live Voice Changer</button>
+        <button type="button" class="import-btn" id="live-stop-btn" style="display:none; border-color:#c0392b; color:#ff6b6b;">⏹ Stop</button>
+      </div>
+      <pre class="rvc-backend-log" id="live-log" style="display:none;"></pre>
+    </div>
+  </div>
+  </div>
+
+
+  <!-- ===================================================================
+       SETTINGS MODAL — device routing, mic mixer, and playback preferences.
+       Every toggle/slider/select here is persisted to disk and restored
+       on next launch, until the person changes it again in this modal.
+       =================================================================== -->
+  <div class="modal-overlay" id="settings-modal-overlay">
+    <div class="modal settings-modal">
+      <div class="modal-title">Settings</div>
+      <div class="modal-tabs" id="settings-tabs">
+        <button type="button" class="modal-tab-btn settings-tab-btn selected" data-tab="audio"><span class="tab-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg></span><span class="tab-label">Audio</span></button>
+        <button type="button" class="modal-tab-btn settings-tab-btn" data-tab="appearance"><span class="tab-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.9-.5-1.4 0-1.1.9-2 2-2h2.3c1.8 0 3.2-1.4 3.2-3.2C20.5 6.7 16.7 2 12 2z"/></svg></span><span class="tab-label">Appearance</span></button>
+        <button type="button" class="modal-tab-btn settings-tab-btn" data-tab="aivoices"><span class="tab-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span><span class="tab-label">AI Voices</span></button>
+        <button type="button" class="modal-tab-btn settings-tab-btn" data-tab="system"><span class="tab-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="tab-label">System</span></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-tab-panel settings-tab-panel" data-tab="audio" style="display:flex;">
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg></span>Output Device</div>
+            <select id="output-device" class="device-select"></select>
+            <div class="volume-row" style="margin-top:10px;">
+              <span class="vol-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+                </svg>
+              </span>
+              <input type="range" id="master-volume" class="volume-slider" min="0" max="100" value="80" />
+              <span class="vol-label" id="master-vol-label">80%</span>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></span>Virtual Mic Output</div>
+            <select id="virtual-mic-device" class="device-select"></select>
+            <div class="volume-row" style="margin-top:10px;">
+              <span class="vol-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+                </svg>
+              </span>
+              <input type="range" id="mic-volume" class="volume-slider" min="0" max="100" value="100" />
+              <span class="vol-label" id="mic-vol-label">100%</span>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></span>Live Microphone</div>
+            <select id="mic-input-device" class="device-select"></select>
+            <div class="vu-meter-track"><div class="vu-meter-fill" id="mic-vu-fill"></div></div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="toggle-row">
+              <span>Mute mic</span>
+              <div class="toggle" id="mic-mute-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Push-to-talk (hold `)</span>
+              <div class="toggle" id="push-to-talk-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Noise gate</span>
+              <div class="toggle" id="noise-gate-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="volume-row" style="margin-top:6px;">
+              <span class="vol-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12h4l3-8 4 16 3-8h4"/>
+                </svg>
+              </span>
+              <input type="range" id="noise-gate-threshold" class="volume-slider" min="0" max="30" value="3" />
+              <span class="vol-label" id="noise-gate-threshold-label">3%</span>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V14M4 10V3M12 21V12M12 8V3M20 21V16M20 12V3"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="20" cy="14" r="2"/></svg></span>Mic Mixer</div>
+            <div class="toggle-row">
+              <span>Local monitor (hear it yourself)</span>
+              <div class="toggle" id="local-monitor-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Monitor mic feed (hear post-FX mic)</span>
+              <div class="toggle" id="monitor-mic-feed-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Echo cancellation (speakers, no headphones)</span>
+              <div class="toggle" id="echo-cancel-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Mic FX (EQ + limiter)</span>
+              <div class="toggle" id="mic-fx-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Duck other sounds on play</span>
+              <div class="toggle" id="duck-toggle"><div class="toggle-knob"></div></div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>Playback Behavior</div>
+            <div class="toggle-row">
+              <span>Stop on overlap</span>
+              <div class="toggle" id="stop-overlap-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Loop</span>
+              <div class="toggle" id="loop-toggle"><div class="toggle-knob"></div></div>
+            </div>
+            <div class="toggle-row">
+              <span>Queue mode (play in order)</span>
+              <div class="toggle" id="queue-toggle"><div class="toggle-knob"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-tab-panel settings-tab-panel" data-tab="appearance" style="display:none;">
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span>Interface Style</div>
+            <div class="ui-style-grid" id="ui-style-grid"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.9-.5-1.4 0-1.1.9-2 2-2h2.3c1.8 0 3.2-1.4 3.2-3.2C20.5 6.7 16.7 2 12 2z"/></svg></span>Theme</div>
+            <div class="theme-swatch-grid" id="theme-swatch-grid"></div>
+          </div>
+          <div class="sidebar-section">
+            <div class="toggle-row">
+              <span>Low-power visuals (no blur or background animation)</span>
+              <div class="toggle" id="low-power-toggle"><div class="toggle-knob"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-tab-panel settings-tab-panel" data-tab="aivoices" style="display:none;">
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span>Conversion Backend</div>
+            <div class="rvc-note">
+              Sounds are converted through <strong>rvc-python</strong>, installed and run
+              automatically — no separate app or terminal needed.
+            </div>
+            <div class="rvc-backend-row">
+              <span class="rvc-backend-status" id="rvc-backend-status">Checking…</span>
+              <button type="button" class="import-btn" id="rvc-backend-install-btn">Install / Update Backend</button>
+            </div>
+            <div class="rvc-backend-row" id="rvc-gpu-row" style="display:none;">
+              <span class="rvc-backend-status" id="rvc-gpu-status">Checking GPU…</span>
+              <button type="button" class="import-btn" id="rvc-gpu-btn" style="display:none;">Enable GPU acceleration</button>
+            </div>
+            <div class="setup-progress" style="display:none;">
+              <div class="setup-progress-head">
+                <span class="setup-progress-label"></span>
+                <button type="button" class="import-btn setup-progress-cancel">Cancel</button>
+              </div>
+              <div class="setup-progress-track"><div class="setup-progress-fill"></div></div>
+            </div>
+            <pre class="rvc-backend-log" id="rvc-backend-log" style="display:none;"></pre>
+            <div class="form-label" style="margin-top:10px;">
+              Conversion Quality <span>(Fast uses lighter voice matching and skips the final level-matching. Balanced is recommended. High matches the target voice more strongly and protects consonants more. Changing this re-converts sounds the next time they play.)</span>
+            </div>
+            <select id="rvc-quality" class="device-select">
+              <option value="fast">Fast</option>
+              <option value="balanced">Balanced (recommended)</option>
+              <option value="high">High</option>
+            </select>
+            <div class="form-label" style="margin-top:10px;">
+              Python Command <span>(system python, or a full path to a venv's python — useful if your system Python is too new for rvc-python's dependencies)</span>
+            </div>
+            <input type="text" id="rvc-python-command" class="form-input" placeholder="python3" />
+            <div class="form-label" style="margin-top:10px;">
+              Command Template <span>(placeholders: {python} {input} {output} {model} {index})</span>
+            </div>
+            <div class="rvc-add-row">
+              <input type="text" id="rvc-command-template" class="form-input" placeholder="{python} -m rvc_python cli -i {input} -o {output} -mp {model} -ip {index}" />
+              <button type="button" class="import-btn" id="rvc-command-reset-btn" title="Reset to default">Reset</button>
+            </div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>Voice Models</div>
+            <div class="rvc-note">
+              Drop in .pth (and optional .index) files below, then pick one per sound
+              from the Edit Sound modal's AI Voice tab.
+            </div>
+            <div class="rvc-add-row">
+              <button type="button" class="import-btn" id="rvc-add-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Add Voice Files
+              </button>
+              <button type="button" class="import-btn" id="rvc-open-folder-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+                Open Folder
+              </button>
+            </div>
+            <div class="rvc-voice-grid" id="rvc-voice-grid"></div>
+          </div>
+        </div>
+
+        <div class="modal-tab-panel settings-tab-panel" data-tab="system" style="display:none;">
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>Panic Button</div>
+            <div class="rvc-note">
+              Instantly stops every sound and mutes your mic. Set a global hotkey below to
+              trigger it even when the app isn't focused, or click the button any time.
+            </div>
+            <div class="rvc-backend-row">
+              <button type="button" class="import-btn" id="panic-btn-manual" style="border-color:#c0392b; color:#ff6b6b;">🛑 Panic — Stop &amp; Mute Now</button>
+            </div>
+            <div class="form-label" style="margin-top:10px;">Panic Hotkey</div>
+            <div class="rvc-add-row">
+              <input type="text" id="panic-hotkey" class="form-input" placeholder="Click to set…" readonly />
+              <button type="button" class="import-btn" id="panic-hotkey-clear-btn" title="Clear">Clear</button>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="rvc-note">
+              Checks whether everything this app can use is ready to go. Only
+              <strong>Virtual Mic Driver</strong> needs anything installed outside
+              the app — everything else is handled automatically.
+            </div>
+            <button type="button" class="import-btn" id="setup-recheck-btn" style="margin-top:4px;">Re-check Everything</button>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>Audio Engine</div>
+            <div class="rvc-backend-row">
+              <span class="rvc-backend-status ready" id="setup-ffmpeg-status">✓ Bundled — always ready</span>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg></span>Virtual Mic Driver (VB-Audio Cable)</div>
+            <div class="rvc-backend-row">
+              <span class="rvc-backend-status" id="setup-vbcable-status">Checking…</span>
+              <button type="button" class="import-btn" id="setup-vbcable-btn" style="display:none;">Download VB-Audio Cable</button>
+            </div>
+            <div class="rvc-note" style="margin-top:6px;">
+              Needed only if you want to route sounds into Discord as a virtual mic. After
+              installing, restart your PC, then come back here and re-check.
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></span>YouTube Import Tool</div>
+            <div class="rvc-backend-row">
+              <span class="rvc-backend-status" id="setup-ytdlp-status">Checking…</span>
+              <button type="button" class="import-btn" id="setup-ytdlp-btn" style="display:none;">Download Now</button>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h3l2-7 4 14 3-10 2 5h4"/></svg></span>AI Voices Backend</div>
+            <div class="rvc-backend-row">
+              <span class="rvc-backend-status" id="setup-rvc-status">Checking…</span>
+              <button type="button" class="import-btn" id="setup-rvc-btn" style="display:none;">Install Backend</button>
+              <button type="button" class="import-btn" id="setup-python-btn" style="display:none; border-color:#2ecc71; color:#7CFC00;">✨ One-Click Setup (no Python needed)</button>
+            </div>
+            <div class="rvc-backend-row" id="setup-gpu-row" style="display:none;">
+              <span class="rvc-backend-status" id="setup-gpu-status">Checking GPU…</span>
+              <button type="button" class="import-btn" id="setup-gpu-btn" style="display:none;">Enable GPU acceleration</button>
+            </div>
+            <div class="setup-progress" style="display:none;">
+              <div class="setup-progress-head">
+                <span class="setup-progress-label"></span>
+                <button type="button" class="import-btn setup-progress-cancel">Cancel</button>
+              </div>
+              <div class="setup-progress-track"><div class="setup-progress-fill"></div></div>
+            </div>
+            <pre class="rvc-backend-log" id="setup-rvc-log" style="display:none;"></pre>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label">Help &amp; Support</div>
+            <div class="rvc-note">Something not working? Copy a diagnostics report and paste it into your bug report. It lists versions, setup status, your settings and recent errors. Your home folder path is masked and no cookies are included, but skim it before posting.</div>
+            <div class="rvc-backend-row">
+              <button type="button" class="import-btn" id="diagnostics-copy-btn">Copy diagnostics</button>
+              <button type="button" class="import-btn" id="wizard-reopen-btn">Run setup guide again</button>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-label"><span class="label-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></span>Software Updates</div>
+            <div class="rvc-note">
+              You're on version <strong id="updates-current-version">—</strong>. Checks run
+              automatically on launch — you can also check manually below.
+            </div>
+            <div class="rvc-backend-row">
+              <span class="rvc-backend-status" id="updates-status">—</span>
+              <button type="button" class="import-btn" id="updates-check-btn">Check for Updates</button>
+            </div>
+            <div class="rvc-add-row" id="updates-install-row" style="display:none; margin-top:10px;">
+              <button type="button" class="import-btn" id="updates-install-btn">Update Now</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div style="font-size:10px; color:var(--text-faint);" id="app-version-label"></div>
+        <div class="modal-actions">
+          <button class="modal-save-btn" id="settings-close-btn">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       FIRST-RUN SETUP GUIDE — walks a new user through virtual-mic routing,
+       a test tone, and the optional extras. Re-openable from Settings > System.
+       =================================================================== -->
+  <div class="modal-overlay" id="wizard-overlay">
+    <div class="modal settings-modal">
+      <div class="modal-title">Set up Soundboard</div>
+      <div class="modal-body">
+        <div class="wizard-step" data-step="1">
+          <div class="rvc-note"><strong>Play sounds in Discord and games.</strong> Soundboard sends audio to a virtual microphone, and other apps listen to it like a normal mic. That needs a free virtual audio cable.</div>
+          <div class="rvc-backend-row">
+            <span class="rvc-backend-status" id="wizard-cable-status">Checking…</span>
+            <button type="button" class="import-btn" id="wizard-cable-download" style="display:none;">Download VB-Audio Cable</button>
+            <button type="button" class="import-btn" id="wizard-cable-recheck" style="display:none;">Check again</button>
+          </div>
+          <div class="rvc-note" id="wizard-cable-help" style="display:none;">Install it, restart your PC, then reopen Soundboard. It is detected automatically, so you don't need to pick anything.</div>
+          <div class="rvc-note">Only want to play sounds on your own speakers? You can skip this step.</div>
+        </div>
+
+        <div class="wizard-step" data-step="2" style="display:none;">
+          <div class="rvc-note"><strong>Test your audio.</strong> Play a short tone. You should hear it on your speakers. If the cable is connected, apps set to use <em>CABLE Output</em> as their microphone will hear it too.</div>
+          <div class="rvc-backend-row">
+            <button type="button" class="import-btn" id="wizard-test-tone">▶ Play test tone</button>
+            <span class="rvc-backend-status" id="wizard-test-status"></span>
+          </div>
+          <div class="rvc-note">Silent? Open Settings &gt; Audio and check the Output Device.</div>
+        </div>
+
+        <div class="wizard-step" data-step="3" style="display:none;">
+          <div class="rvc-note"><strong>Optional extras.</strong> Skip these and add them later from Settings &gt; System.</div>
+          <div class="rvc-backend-row">
+            <span class="rvc-backend-status" id="wizard-ytdlp-status">Checking…</span>
+            <button type="button" class="import-btn" id="wizard-ytdlp-btn" style="display:none;">Get YouTube import tool</button>
+          </div>
+          <div class="rvc-backend-row">
+            <span class="rvc-backend-status" id="wizard-rvc-status">Checking…</span>
+            <button type="button" class="import-btn" id="wizard-rvc-btn" style="display:none;">Set up AI Voices</button>
+          </div>
+          <div class="rvc-note">AI Voices downloads its own Python and several GB of packages, so it has its own setup screen.</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="modal-cancel-btn" id="wizard-skip-btn">Skip setup</button>
+        <div class="modal-actions">
+          <button class="modal-cancel-btn" id="wizard-back-btn" style="display:none;">Back</button>
+          <button class="modal-save-btn" id="wizard-next-btn">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       IMPORT FROM YOUTUBE — paste a URL, optionally clip a start/end range,
+       and auto-trim silence off the edges. Runs through the main process
+       (ytdl-core + ffmpeg) and lands in the library as a normal sound.
+       =================================================================== -->
+  <div class="modal-overlay" id="yt-import-modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Import from YouTube</div>
+
+      <div class="modal-body">
+        <div>
+          <div class="form-label">YouTube URL</div>
+          <div class="hotkey-row">
+            <input type="text" id="yt-url-input" class="form-input" placeholder="https://youtube.com/watch?v=..." />
+            <button type="button" class="hotkey-clear-btn" id="yt-fetch-btn" title="Load video info">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="yt-preview" class="yt-preview-card" style="display:none;">
+          <div class="yt-preview-title" id="yt-preview-title"></div>
+          <div class="yt-preview-meta" id="yt-preview-meta"></div>
+        </div>
+
+        <div>
+          <div class="form-label">Clip Name</div>
+          <input type="text" id="yt-name-input" class="form-input" placeholder="Sound name" />
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <div style="flex:1;">
+            <div class="form-label">Start <span>(mm:ss)</span></div>
+            <input type="text" id="yt-start-input" class="form-input" placeholder="0:00" />
+          </div>
+          <div style="flex:1;">
+            <div class="form-label">End <span>(mm:ss)</span></div>
+            <input type="text" id="yt-end-input" class="form-input" placeholder="optional" />
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <span>Auto-trim silence</span>
+          <div class="toggle active" id="yt-autotrim-toggle"><div class="toggle-knob"></div></div>
+        </div>
+
+        <details class="yt-cookies" id="yt-cookies-details">
+          <summary>
+            <span>Cookies</span>
+            <span class="yt-cookie-badge" id="yt-cookie-badge">Not set</span>
+          </summary>
+          <div class="yt-cookies-body">
+            <div class="rvc-info-text">
+              If YouTube says <em>"Sign in to confirm you're not a bot"</em> or the video is age-restricted,
+              give the importer your YouTube cookies. Import a <code>cookies.txt</code> (only YouTube/Google
+              entries are kept) or borrow them from a browser you're signed in on.
+              Tip: exporting from a private/incognito window keeps them from expiring.
+            </div>
+            <div class="rvc-add-row">
+              <button type="button" class="import-btn" id="yt-cookie-import-btn">Import cookies.txt…</button>
+              <button type="button" class="import-btn" id="yt-cookie-clear-btn">Clear cookies</button>
+            </div>
+            <div class="form-label">Or use cookies from a browser</div>
+            <div class="rvc-add-row" style="margin-bottom:0;">
+              <select id="yt-cookie-browser-select" class="device-select" style="flex:1; min-width:0;"></select>
+              <button type="button" class="import-btn" id="yt-cookie-browser-btn">Use</button>
+            </div>
+          </div>
+        </details>
+
+        <div class="yt-status-text" id="yt-import-status" style="display:none;"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="modal-cancel-btn" id="yt-cancel-btn">Cancel</button>
+        <div class="modal-actions">
+          <button class="modal-save-btn" id="yt-import-btn-confirm">⬇ Import</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal edit-modal">
+      <div class="modal-title">Edit Sound</div>
+      <div class="modal-tabs" id="modal-tabs">
+        <button type="button" class="modal-tab-btn selected" data-tab="sound">Sound</button>
+        <button type="button" class="modal-tab-btn" data-tab="voice">Voice FX</button>
+        <button type="button" class="modal-tab-btn" data-tab="aivoice">AI Voice</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-tab-panel" data-tab="sound">
+          <div class="form-section">
+            <div class="form-section-title">Identity</div>
+            <div class="form-row">
+              <div>
+                <div class="form-label">Name</div>
+                <input type="text" id="edit-name" class="form-input" placeholder="Sound name" />
+              </div>
+              <div style="flex:0 0 70px;">
+                <div class="form-label">Emoji</div>
+                <input type="text" id="edit-emoji" class="form-input" placeholder="🔊" maxlength="4" />
+              </div>
+            </div>
+            <div>
+              <div class="form-label">Color</div>
+              <div class="color-picker-row" id="color-picker-row"></div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Playback</div>
+            <div class="form-row">
+              <div>
+                <div class="form-label">Hotkey</div>
+                <div class="hotkey-row">
+                  <input type="text" id="edit-hotkey" class="form-input hotkey-input" placeholder="Click to record" readonly />
+                  <button type="button" class="hotkey-clear-btn" id="hotkey-clear-btn">✕</button>
+                </div>
+              </div>
+              <div>
+                <div class="form-label">Volume <span id="edit-vol-label">100%</span></div>
+                <input type="range" id="edit-volume" class="volume-slider" min="0" max="200" value="100" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div>
+                <div class="form-label">Fade In (ms)</div>
+                <input type="number" id="edit-fadein" class="form-input" min="0" step="50" value="0" />
+              </div>
+              <div>
+                <div class="form-label">Fade Out (ms)</div>
+                <input type="number" id="edit-fadeout" class="form-input" min="0" step="50" value="0" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Organization</div>
+            <div>
+              <div class="form-label">Category</div>
+              <input type="text" id="edit-category" class="form-input" placeholder="e.g. memes, clips, alerts" />
+            </div>
+            <div class="checkbox-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="edit-send-to-mic" checked />
+                <span>Send to virtual mic (uncheck for local-only)</span>
+              </label>
+            </div>
+          </div>
+
+          <button type="button" class="modal-cancel-btn" id="reveal-file-btn" style="align-self:flex-start;">📁 Show in folder</button>
+        </div>
+
+        <div class="modal-tab-panel" data-tab="voice" style="display:none;">
+          <div class="form-section">
+            <div class="form-section-title">Preset</div>
+            <div class="voice-preset-grid" id="voice-preset-grid">
+              <button type="button" class="voice-preset-btn selected" data-preset="normal">Normal</button>
+              <button type="button" class="voice-preset-btn" data-preset="deep">Deep</button>
+              <button type="button" class="voice-preset-btn" data-preset="male">Male</button>
+              <button type="button" class="voice-preset-btn" data-preset="female">Female</button>
+              <button type="button" class="voice-preset-btn" data-preset="chipmunk">Chipmunk</button>
+              <button type="button" class="voice-preset-btn" data-preset="helium">Helium</button>
+              <button type="button" class="voice-preset-btn" data-preset="baby">Baby</button>
+              <button type="button" class="voice-preset-btn" data-preset="giant">Giant</button>
+              <button type="button" class="voice-preset-btn" data-preset="demon">Demon</button>
+              <button type="button" class="voice-preset-btn" data-preset="robot">Robot</button>
+              <button type="button" class="voice-preset-btn" data-preset="alien">Alien</button>
+              <button type="button" class="voice-preset-btn" data-preset="telephone">Telephone</button>
+              <button type="button" class="voice-preset-btn" data-preset="radio">Radio</button>
+              <button type="button" class="voice-preset-btn" data-preset="underwater">Underwater</button>
+              <button type="button" class="voice-preset-btn" data-preset="ghost">Ghost</button>
+              <button type="button" class="voice-preset-btn" data-preset="echo">Echo</button>
+              <button type="button" class="voice-preset-btn" data-preset="whisper">Whisper</button>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Fine Tune</div>
+            <div class="form-row">
+              <div>
+                <div class="form-label">Pitch <span id="edit-pitch-label">0 st</span></div>
+                <input type="range" id="edit-pitch" class="volume-slider" min="-12" max="12" step="1" value="0" />
+              </div>
+              <div>
+                <div class="form-label">Formant <span id="edit-formant-label">0.00</span></div>
+                <input type="range" id="edit-formant" class="volume-slider" min="-1" max="1" step="0.05" value="0" />
+              </div>
+            </div>
+          </div>
+
+          <button type="button" id="voice-preview-btn" class="modal-save-btn">▶ Preview</button>
+        </div>
+
+        <div class="modal-tab-panel" data-tab="aivoice" style="display:none;">
+          <div class="rvc-note">
+            Converts this sound through a chosen voice model (run once and cached) instead
+            of the Voice FX preset above. Pick "Off" to use Voice FX normally.
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Voice Model</div>
+            <div class="rvc-voice-grid" id="edit-rvc-voice-grid"></div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Pitch Shift</div>
+            <div>
+              <div class="form-label">RVC Pitch <span id="edit-rvc-pitch-label">0</span></div>
+              <input type="range" id="edit-rvc-pitch" class="volume-slider" min="-24" max="24" step="1" value="0" />
+            </div>
+            <div class="voice-preset-grid">
+              <button type="button" class="voice-preset-btn rvc-pitch-preset-btn" data-rvc-pitch="-12">Male → Female</button>
+              <button type="button" class="voice-preset-btn rvc-pitch-preset-btn" data-rvc-pitch="0">No Change</button>
+              <button type="button" class="voice-preset-btn rvc-pitch-preset-btn" data-rvc-pitch="12">Female → Male</button>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Options</div>
+            <div class="checkbox-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="edit-rvc-separate" />
+                Separate vocals from background music first (slower, but keeps the instrumental untouched)
+              </label>
+            </div>
+          </div>
+
+          <div class="yt-status-text" id="edit-rvc-status"></div>
+          <div class="conv-progress" data-kind="edit" style="display:none;">
+            <div class="conv-progress-head">
+              <span class="conv-progress-label"></span>
+              <button type="button" class="import-btn conv-progress-cancel">Cancel</button>
+            </div>
+            <div class="conv-progress-track"><div class="conv-progress-fill"></div></div>
+          </div>
+          <pre class="rvc-backend-log" id="edit-rvc-log" style="display:none;"></pre>
+          <div class="rvc-add-row">
+            <button type="button" id="edit-rvc-preview-btn" class="modal-save-btn">▶ Preview</button>
+            <button type="button" id="edit-rvc-reconvert-btn" class="import-btn" title="Delete the cached conversion and run it again">↻ Force Reconvert</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="modal-delete-btn" id="modal-delete-btn">Delete</button>
+        <div class="modal-actions">
+          <button class="modal-cancel-btn" id="modal-cancel-btn">Cancel</button>
+          <button class="modal-save-btn" id="modal-save-btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="tauri-shim.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

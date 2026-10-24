@@ -1,0 +1,56 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows-latest, args: "" }
+          - { platform: macos-latest,   args: "--target aarch64-apple-darwin" }
+          - { platform: macos-15-intel,  args: "--target x86_64-apple-darwin" }
+          - { platform: ubuntu-22.04,   args: "" }
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check updater signing is set up
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Repo secret TAURI_SIGNING_PRIVATE_KEY is missing. Settings > Secrets and variables > Actions. Paste the contents of the key file made by 'npx tauri signer generate'."
+            exit 1
+          fi
+          if grep -q "REPLACE_WITH" src-tauri/tauri.conf.json; then
+            echo "::error::plugins.updater.pubkey in src-tauri/tauri.conf.json is still the placeholder. Paste in the public key from 'npx tauri signer generate'."
+            exit 1
+          fi
+          test -f src-tauri/icons/icon.ico || { echo "::error::src-tauri/icons is missing - commit the icons folder."; exit 1; }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: Linux build dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libayatana-appindicator3-dev
+      - run: npm install
+      - run: node scripts/prepare-sidecar.mjs
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Soundboard ${{ github.ref_name }}"
+          releaseDraft: false
+          args: ${{ matrix.args }}
