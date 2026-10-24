@@ -60,7 +60,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_OUTPUT_OF__npx_tauri_signer_generate",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEyM0Q3QUZBM0FBOEQxMjYKUldRbTBhZzYrbm85b21IMTNKOWdycXgySHlxb0pqRVgyNHk4VW44WDYyZTlQU1ZZNFFsdU8vSEYK",
       "endpoints": [
         "https://github.com/Easilestra/soundboardrepo/releases/latest/download/latest.json"
       ],
