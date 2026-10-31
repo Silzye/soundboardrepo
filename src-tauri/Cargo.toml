@@ -1,6 +1,6 @@
 [package]
 name = "soundboard"
-version = "1.8.0"
+version = "1.8.1"
 description = "A soundboard app with virtual mic routing for Discord"
 authors = ["Silzye"]
 edition = "2021"

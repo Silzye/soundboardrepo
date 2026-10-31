@@ -19,7 +19,7 @@ A soundboard app with virtual mic routing for Discord, YouTube clip importing, a
 
 ```
 npm install
-npm start          # dev build
+npm start          # dev build (npm run dev does the same)
 npm run build      # installers in src-tauri/target/release/bundle
 ```
 

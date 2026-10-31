@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Soundboard",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "identifier": "com.example.soundboard",
   "build": {
     "frontendDist": "../src"
@@ -60,9 +60,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEyM0Q3QUZBM0FBOEQxMjYKUldRbTBhZzYrbm85b21IMTNKOWdycXgySHlxb0pqRVgyNHk4VW44WDYyZTlQU1ZZNFFsdU8vSEYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQTdGOEI3QTkyQ0I2QzgKUldUSXRpeXB0L2luMEF0UU81bUpMdWg4dFduYnFPYXI4QkNpcTI3Q3Q3SjduV3VvdnJESGN6K3QK",
       "endpoints": [
-        "https://github.com/Easilestra/soundboardrepo/releases/latest/download/latest.json"
+        "https://github.com/Silzye/soundboardrepo/releases/latest/download/latest.json"
       ],
       "windows": { "installMode": "passive" }
     }

@@ -262,6 +262,10 @@
             <span class="vol-label" id="live-fx-pitch-label">Extra pitch: 0</span>
           </div>
           <div class="toggle-row" style="margin-top:8px;">
+            <span>Keep my volume steady across voices</span>
+            <div class="toggle" id="live-fx-level-toggle"><div class="toggle-knob"></div></div>
+          </div>
+          <div class="toggle-row" style="margin-top:8px;">
             <span>Also let me hear this voice locally (use headphones)</span>
             <div class="toggle" id="live-fx-monitor-toggle"><div class="toggle-knob"></div></div>
           </div>
@@ -464,13 +468,28 @@
             </div>
             <pre class="rvc-backend-log" id="rvc-backend-log" style="display:none;"></pre>
             <div class="form-label" style="margin-top:10px;">
-              Conversion Quality <span>(Fast uses lighter voice matching and skips the final level-matching. Balanced is recommended. High matches the target voice more strongly and protects consonants more. Changing this re-converts sounds the next time they play.)</span>
+              Conversion Quality <span>(Fast uses lighter processing and skips the final clean-up. Balanced is recommended. High restores the most clarity and protects consonants more. Changing this re-converts sounds the next time they play.)</span>
             </div>
             <select id="rvc-quality" class="device-select">
               <option value="fast">Fast</option>
               <option value="balanced">Balanced (recommended)</option>
               <option value="high">High</option>
             </select>
+            <div class="form-label" style="margin-top:10px;">
+              Voice Match Strength <span>(how closely the result copies the AI voice. Lower it if the voice sounds metallic or robotic; raise it if it doesn't sound enough like the target. Needs a .index file for the voice)</span>
+            </div>
+            <div class="volume-row">
+              <input type="range" id="rvc-index-rate" class="volume-slider" min="0" max="100" step="5" value="50" />
+              <span class="vol-label" id="rvc-index-rate-label" style="min-width:74px;">50%</span>
+            </div>
+            <div class="form-label" style="margin-top:10px;">
+              Clarity <span>(restores the high frequencies voice models leave dull. Raise it if the voice sounds muffled; lower it if it sounds harsh or hissy)</span>
+            </div>
+            <div class="volume-row">
+              <input type="range" id="rvc-clarity" class="volume-slider" min="0" max="100" step="5" value="50" />
+              <span class="vol-label" id="rvc-clarity-label" style="min-width:74px;">50%</span>
+            </div>
+            <button type="button" class="modal-cancel-btn" id="rvc-tuning-reset" style="margin-top:8px; display:none;">Reset to preset</button>
             <div class="form-label" style="margin-top:10px;">
               Python Command <span>(system python, or a full path to a venv's python — useful if your system Python is too new for rvc-python's dependencies)</span>
             </div>

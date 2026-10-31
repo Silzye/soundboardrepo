@@ -109,4 +109,59 @@ test("mix: both stems keep their level (amix default would drop ~6 dB)", async (
   assert.ok(fixed.max - old.max > 5, `fixed ${fixed.max} vs old ${old.max}`);
 });
 
+
+// energy above 8 kHz (mean level, dB) - the "air" a muffled voice lacks
+async function airLevel(file) {
+  const log = await a.runFfmpeg(["-i", file, "-af", "highpass=f=8000,volumedetect", "-f", "null", "-"]);
+  return parseFloat(log.match(/mean_volume:\s*(-?[\d.]+)/)[1]);
+}
+const noise = (out, { sr, lowpass, amp = 0.3 }) =>
+  a.runFfmpeg(["-f", "lavfi", "-i", `anoisesrc=d=2:c=white:r=${sr}:a=${amp}`, ...(lowpass ? ["-af", `lowpass=f=${lowpass}`] : []), "-ac", "1", out]);
+
+test("tuning: presets by default, slider values override, junk is ignored and clamped", () => {
+  assert.deepEqual(a.resolveTuning("balanced", {}), { indexRate: 0.5, clarity: 0.35 });
+  assert.deepEqual(a.resolveTuning("fast", { rvcIndexRate: null, rvcClarity: null }), { indexRate: 0.4, clarity: 0 });
+  assert.deepEqual(a.resolveTuning("high", { rvcIndexRate: 0.2, rvcClarity: 0 }), { indexRate: 0.2, clarity: 0 });
+  assert.deepEqual(a.resolveTuning("balanced", { rvcIndexRate: 7, rvcClarity: -3 }), { indexRate: 1, clarity: 0 });
+  assert.deepEqual(a.resolveTuning("balanced", { rvcIndexRate: "0.9", rvcClarity: NaN }), { indexRate: 0.5, clarity: 0.35 });
+  assert.deepEqual(a.resolveTuning("nonsense", undefined), a.resolveTuning("balanced", {}));
+});
+
+test("presets never push the index rate into metallic territory", () => {
+  for (const [name, p] of Object.entries(a.QUALITY_PRESETS)) assert.ok(p.indexRate <= 0.5, `${name} index ${p.indexRate}`);
+});
+
+test("args: a slider index rate overrides the preset's, and is skipped without an index file", () => {
+  const s = a.parseSupportedFlags(HELP);
+  assert.ok(a.buildQualityArgs("balanced", s, { hasIndex: true, template: "", indexRate: 0.2 }).includes("--index_rate 0.2"));
+  assert.ok(a.buildQualityArgs("balanced", s, { hasIndex: true, template: "" }).includes("--index_rate 0.5"));
+  assert.ok(!a.buildQualityArgs("balanced", s, { hasIndex: false, template: "", indexRate: 0.9 }).includes("index_rate"));
+});
+
+test("clarity: a muffled result gets its top end back; 0 leaves it alone; sample rate is kept", async () => {
+  await noise(f("air_src.wav"), { sr: 44100 });                  // source: full-bandwidth
+  await noise(f("air_conv.wav"), { sr: 40000, lowpass: 3000 });  // model output: dull, nothing above 3 kHz
+  const none = await a.polishRvcOutput(f("air_conv.wav"), f("air_src.wav"), f("air0.wav"), { clarity: 0 });
+  const some = await a.polishRvcOutput(f("air_conv.wav"), f("air_src.wav"), f("air6.wav"), { clarity: 0.6 });
+  const max = await a.polishRvcOutput(f("air_conv.wav"), f("air_src.wav"), f("air10.wav"), { clarity: 1 });
+  assert.ok(none && some && max);
+  const [l0, l6, l10] = [await airLevel(f("air0.wav")), await airLevel(f("air6.wav")), await airLevel(f("air10.wav"))];
+  assert.ok(l6 - l0 > 8, `clarity 0.6 lifted the highs only ${(l6 - l0).toFixed(1)} dB (${l0} -> ${l6})`);
+  assert.ok(l10 > l6, `more clarity should mean more air (${l6} -> ${l10})`);
+  for (const n of ["air0.wav", "air6.wav", "air10.wav"]) {
+    assert.match(await a.runFfmpeg(["-i", f(n), "-f", "null", "-"]), /40000 Hz/);
+    const d = (await a.runFfmpeg(["-i", f(n), "-f", "null", "-"])).match(/Duration: (\d+):(\d+):([\d.]+)/);
+    assert.ok(Math.abs(+d[3] - 2) < 0.1, "duration must not change");
+    assert.ok((await a.probeVolume(f(n))).max <= -0.4, "must not clip");
+  }
+});
+
+test("clarity: tonal content (a voice-like tone) keeps its level and is not clipped", async () => {
+  await tone(f("t_src.wav"), -8, { ch: 1 });
+  await tone(f("t_conv.wav"), -18, { ch: 1, sr: 40000 });
+  await a.polishRvcOutput(f("t_conv.wav"), f("t_src.wav"), f("t_out.wav"), { clarity: 0.6 });
+  const s = await a.probeVolume(f("t_src.wav")), o = await a.probeVolume(f("t_out.wav"));
+  assert.ok(Math.abs(o.mean - s.mean) < 2.5, `mean ${o.mean} vs source ${s.mean}`);
+});
+
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));

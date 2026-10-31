@@ -107,6 +107,7 @@
     // Live Voice Changer
     startLiveVoice: (opts) => backend("live-voice-start", opts),
     stopLiveVoice: () => backend("live-voice-stop"),
+    setLiveVoiceParams: (payload) => backend("live-voice-set-params", payload),
     convertLiveVoiceChunk: (payload) => backend("live-voice-convert-chunk", payload),
   };
 

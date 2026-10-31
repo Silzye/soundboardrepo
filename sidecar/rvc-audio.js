@@ -11,8 +11,10 @@
  *  2. prepareRvcInput   -> mono 44.1 kHz WAV, rumble removed, very quiet clips
  *                          lifted. Always runs: it also fixes inputs the CLI
  *                          can't decode (mp3, m4a, ...), at negligible cost.
- *  3. polishRvcOutput   -> (skipped by the Fast preset) level-matches the result to the source, removes DC /
- *                          rumble, and limits peaks so it can't clip.
+ *  3. polishRvcOutput   -> (skipped by the Fast preset unless Clarity is raised)
+ *                          level-matches the result to the source, removes DC /
+ *                          rumble, restores the top end the voice model leaves
+ *                          dull ("Clarity"), and limits peaks so it can't clip.
  *  4. MIX_FILTER        -> vocals + instrumental without the 6 dB drop amix's
  *                          default normalisation causes.
  */
@@ -21,21 +23,42 @@ const { spawn, exec } = require("child_process");
 
 /* ------------------------------ presets ---------------------------------- */
 
-// Values are the commonly used RVC inference settings:
+// Values are common RVC inference settings:
 //   index rate   how strongly the voice model's training-set timbre is blended
-//                in (needs a .index file). Higher = closer to the target voice.
+//                in (needs a .index file). Higher = closer to the target voice,
+//                but too high is the usual cause of a metallic / "robotic" sound
+//                (it copies the artefacts of the training data), so presets stay
+//                at or below 0.5. Raise it only if the voice doesn't sound enough
+//                like the target.
 //   protect      shields consonants/breaths from being "voiced"; lower = clearer
 //                speech, slightly weaker voice match. (0.5 disables it.)
 //   rms mix      0 follows the source loudness envelope, 1 the output's.
+//   clarity      0..1, how much of the top end is restored in post-processing.
+//                RVC models reproduce the middle of the sound well but leave the
+//                highs (air, "s" sounds, breath) dull, which is the "muffled" sound.
+// The Settings sliders (rvcIndexRate / rvcClarity) override indexRate / clarity.
+// NOTE: the same defaults are mirrored in renderer.js (RVC_PRESET_DEFAULTS).
 const QUALITY_PRESETS = {
-  fast:     { method: "rmvpe", indexRate: 0.5,  protect: 0.33, rmsMix: 0.25, filterRadius: 3, polish: false },
-  balanced: { method: "rmvpe", indexRate: 0.75, protect: 0.33, rmsMix: 0.25, filterRadius: 3, polish: true },
-  high:     { method: "rmvpe", indexRate: 0.85, protect: 0.25, rmsMix: 0.20, filterRadius: 3, polish: true },
+  fast:     { method: "rmvpe", indexRate: 0.4, protect: 0.33, rmsMix: 0.25, filterRadius: 3, polish: false, clarity: 0 },
+  balanced: { method: "rmvpe", indexRate: 0.5, protect: 0.33, rmsMix: 0.25, filterRadius: 3, polish: true,  clarity: 0.35 },
+  high:     { method: "rmvpe", indexRate: 0.5, protect: 0.30, rmsMix: 0.20, filterRadius: 3, polish: true,  clarity: 0.6 },
 };
 const DEFAULT_QUALITY = "balanced";
 
 function normalizeQuality(value) {
   return Object.prototype.hasOwnProperty.call(QUALITY_PRESETS, value) ? value : DEFAULT_QUALITY;
+}
+
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+
+// The values actually used: the person's slider if they set one, else the preset's.
+function resolveTuning(quality, settings) {
+  const p = QUALITY_PRESETS[normalizeQuality(quality)];
+  const s = settings || {};
+  return {
+    indexRate: isNum(s.rvcIndexRate) ? Math.min(1, Math.max(0, s.rvcIndexRate)) : p.indexRate,
+    clarity: isNum(s.rvcClarity) ? Math.min(1, Math.max(0, s.rvcClarity)) : p.clarity,
+  };
 }
 
 /* --------------------------- rvc-python flags ----------------------------- */
@@ -69,10 +92,10 @@ function templateHasFlag(template, key) {
   return FLAG_CANDIDATES[key].some((c) => new RegExp(`(^|\\s)${escapeRe(c)}(\\s|=|$)`).test(template || ""));
 }
 
-function buildQualityArgs(quality, supported, { hasIndex, template }) {
+function buildQualityArgs(quality, supported, { hasIndex, template, indexRate }) {
   const p = QUALITY_PRESETS[normalizeQuality(quality)];
   const wanted = { method: p.method, protect: p.protect, rmsMix: p.rmsMix, filterRadius: p.filterRadius };
-  if (hasIndex) wanted.indexRate = p.indexRate; // meaningless without an index file
+  if (hasIndex) wanted.indexRate = isNum(indexRate) ? indexRate : p.indexRate; // meaningless without an index file
   let args = "";
   for (const [key, value] of Object.entries(wanted)) {
     if (!supported[key] || templateHasFlag(template, key)) continue;
@@ -146,9 +169,28 @@ async function prepareRvcInput(src, dest) {
   }
 }
 
+async function probeSampleRate(file) {
+  try {
+    const log = await runFfmpeg(["-i", file, "-vn", "-f", "null", "-"]);
+    const hz = parseInt((log.match(/(\d+) Hz/) || [])[1], 10);
+    return Number.isFinite(hz) ? hz : null;
+  } catch {
+    return null;
+  }
+}
+
 // Level-match the converted audio to the reference (the source it came from),
-// strip rumble/DC, and keep peaks under -0.5 dBFS. Returns true on success.
-async function polishRvcOutput(converted, reference, dest) {
+// strip rumble/DC, restore the top end ("clarity"), and keep peaks under about
+// -0.5 dBFS. Returns true on success.
+//
+// Clarity does two things, both scaled by `clarity` (0..1):
+//  * a gentle high shelf from 6 kHz (up to +4.5 dB)
+//  * a scaled copy of the SOURCE's content above 8 kHz mixed in (-14 dB at low
+//    clarity up to full level at 1; speech has little up there, so it stays subtle). Breath and "s"
+//    sounds are mostly noise-like and carry little of the speaker's identity, so
+//    this gives the dull converted voice its air back without bringing the old
+//    voice with it.
+async function polishRvcOutput(converted, reference, dest, { clarity = 0 } = {}) {
   try {
     const [conv, ref] = await Promise.all([probeVolume(converted), probeVolume(reference)]);
     let gain = 0;
@@ -156,8 +198,23 @@ async function polishRvcOutput(converted, reference, dest) {
       gain = clamp(ref.mean - conv.mean, -12, 12);
       if (conv.max + gain > -1.5) gain = -1.5 - conv.max; // never boost into clipping
     }
-    const filters = ["highpass=f=40", `volume=${gain.toFixed(2)}dB`, "alimiter=limit=0.944:level=0"];
-    await runFfmpeg(["-i", converted, "-af", filters.join(","), "-c:a", "pcm_s16le", dest]);
+    const c = clamp(clarity, 0, 1);
+    const chain = ["highpass=f=40"];
+    if (c > 0) chain.push(`highshelf=f=6000:g=${(4.5 * c).toFixed(2)}`);
+    chain.push(`volume=${gain.toFixed(2)}dB`);
+
+    if (c > 0 && ref) {
+      const rate = (await probeSampleRate(converted)) || 44100;
+      const airDb = (-14 + 14 * c).toFixed(1); // clarity 1 = the source's highs at their natural level
+      const graph =
+        `[0:a]${chain.join(",")}[v];` +
+        `[1:a]aresample=${rate},highpass=f=8000,volume=${airDb}dB[air];` +
+        `[v][air]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.944:level=0[out]`;
+      await runFfmpeg(["-i", converted, "-i", reference, "-filter_complex", graph, "-map", "[out]", "-ar", String(rate), "-c:a", "pcm_s16le", dest]);
+    } else {
+      chain.push("alimiter=limit=0.944:level=0");
+      await runFfmpeg(["-i", converted, "-af", chain.join(","), "-c:a", "pcm_s16le", dest]);
+    }
     return true;
   } catch {
     return false;
@@ -169,7 +226,7 @@ async function polishRvcOutput(converted, reference, dest) {
 const MIX_FILTER = "[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.944:level=0[aout]";
 
 module.exports = {
-  QUALITY_PRESETS, DEFAULT_QUALITY, normalizeQuality,
+  QUALITY_PRESETS, DEFAULT_QUALITY, normalizeQuality, resolveTuning,
   parseSupportedFlags, buildQualityArgs, rvcQualityArgs,
   runFfmpeg, probeVolume, prepareRvcInput, polishRvcOutput, MIX_FILTER,
 };

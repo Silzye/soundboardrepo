@@ -96,7 +96,10 @@ Conversion (sounds, TTS and the music converter all share it) now goes through `
 * **Quality presets** (Settings → AI Voices): Fast / Balanced / High set rvc-python's pitch tracker (`rmvpe`), index rate, consonant protection, volume-envelope mix and filter radius. The flags are read from `rvc_python cli --help`, so a build that lacks one is never handed an unknown argument, and flags you put in the command template take priority.
 * **Input preparation** (every preset): mono 44.1 kHz WAV, rumble removed, very quiet clips lifted. This also stops mp3/m4a inputs from failing in the CLI.
 * **Output polish** (Balanced/High): level-matched to the source (max ±12 dB), DC/rumble removed, peaks limited. The vocal-separation mix no longer drops 6 dB (`amix` was normalising).
-* Results are cached **per preset**, so changing the setting re-converts. Files cached by older versions are simply not used.
+* **Voice Match Strength** (Settings > AI Voices): the index rate. Too high is the usual cause of a metallic or "robotic" sound, so the presets sit at 0.4-0.5 (they were 0.75-0.85 in the first version of this feature). Lower it if the voice still sounds metallic; raise it if it doesn't sound enough like the target.
+* **Clarity** (Settings > AI Voices): voice models reproduce the middle of the sound but leave the highs dull, which is the "muffled" sound. Clarity adds a gentle high shelf from 6 kHz (up to +4.5 dB) and mixes in the source's content above 8 kHz (breath and "s" sounds carry little of the speaker's identity). Preset defaults: Fast 0%, Balanced 35%, High 60%. Lower it if the result sounds hissy or harsh.
+* Both sliders follow the chosen preset until moved; "Reset to preset" clears the override. The preset numbers are in `QUALITY_PRESETS` (`sidecar/rvc-audio.js`) and are mirrored in `RVC_PRESET_DEFAULTS` (`src/renderer.js`).
+* Results are cached **per quality preset, slider values and voice model file**, so changing any of them, or replacing a voice's `.pth`/`.index`, re-converts instead of replaying old audio. Files cached by older versions are simply not used.
 
 `npm test` in `sidecar/` runs the audio tests against a real ffmpeg. The preset values are commonly used RVC settings, not something I could judge by ear here, so compare Fast/Balanced/High on a voice you know and adjust `QUALITY_PRESETS` in `rvc-audio.js` to taste.
 

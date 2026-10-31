@@ -1,6 +1,6 @@
 {
   "name": "soundboard-backend",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "description": "Background service for Soundboard: yt-dlp, ffmpeg, Python/RVC, TTS, live voice",
   "main": "server.js",

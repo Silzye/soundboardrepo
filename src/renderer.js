@@ -52,6 +52,15 @@ let liveFxActive = false;
 let liveFxWorkletReady = false;
 let livePitchNode = null;
 let liveFxChain = null;
+let liveFxChainFade = null;
+let liveFxMix = null;
+let liveFxLevel = null;
+let liveFxLimiter = null;
+let liveFxInAnalyser = null;
+let liveFxOutAnalyser = null;
+let liveFxLevelTimer = null;
+let liveFxLevelSmooth = 1;
+let liveFxAutoLevel = true;
 let liveFxOut = null;
 let liveVoiceProcessor = null;
 let liveVoiceSilentGain = null;
@@ -75,6 +84,13 @@ let duckAmount = 0.35;
 
 let noiseGateEnabled = false;
 let noiseGateThreshold = 0.03;
+let micGateDelay = null;
+let gateOpen = false;
+let gateHoldUntil = 0;
+let gateLookaheadOn = false;
+const GATE_LOOKAHEAD_S = 0.03;
+const GATE_HOLD_MS = 250;
+const GATE_CLOSE_RATIO = 0.7;
 let micMuted = false;
 let pushToTalkMode = false;
 
@@ -619,18 +635,48 @@ async function connectVirtualMic() {
 /* =========================================================================
    LIVE MICROPHONE
    ========================================================================= */
-async function connectLiveMic(deviceId) {
+let micConnectSeq = 0;
+let lastGoodMicDeviceId = "";
+
+function isVirtualCableCapture(label) {
+  const l = (label || "").toLowerCase();
+  return l.includes("cable output") || l.includes("cable in 16ch") || l.includes("vb-audio") ||
+    l.includes("voicemeeter") || l.includes("virtual cable");
+}
+
+function realMicInputs(devices) {
+  return devices.filter((d) => d.kind === "audioinput" && !isVirtualCableCapture(d.label));
+}
+
+function pickDefaultRealMic(mics, savedId, savedLabel) {
+  return mics.find((d) => d.deviceId === savedId) ||
+    (savedLabel ? mics.find((d) => d.label === savedLabel) : null) ||
+    mics.find((d) => d.deviceId === "default") ||
+    mics.find((d) => d.deviceId !== "communications") ||
+    mics[0];
+}
+
+function routeMicInput() {
+  if (!micMuteGain) return;
+  try { micMuteGain.disconnect(); } catch {}
+  if (liveVoiceActive && liveVoiceProcessor) micMuteGain.connect(liveVoiceProcessor);
+  else if (liveFxActive && livePitchNode) micMuteGain.connect(livePitchNode);
+  else micMuteGain.connect(micSendGain);
+  if (liveFxActive && liveFxInAnalyser) micMuteGain.connect(liveFxInAnalyser);
+}
+
+async function connectLiveMic(deviceId, isRevert = false) {
+  const seq = ++micConnectSeq;
   try { liveMicStream?.getTracks().forEach((t) => t.stop()); } catch {}
   try { liveMicSource?.disconnect(); } catch {}
+  liveMicSource = null;
+  liveMicStream = null;
 
+  let stream;
   try {
-    liveMicStream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        // The browser's echo canceller and auto-gain keep re-adapting to whatever
-        // this app is playing (monitoring, sounds, live voice), which is what made
-        // echo fade in and out. They are off by default; echo cancellation can be
-        // switched on in Settings if you use speakers instead of headphones.
         echoCancellation: !!appSettings.echoCancellation,
         noiseSuppression: true,
         autoGainControl: false,
@@ -638,31 +684,52 @@ async function connectLiveMic(deviceId) {
     });
   } catch (e) {
     console.warn("Could not open live mic:", e);
-    showToast("⚠️ Could not access microphone");
-    return;
+    if (seq === micConnectSeq) showToast("⚠️ Could not access microphone");
+    return false;
   }
 
+  if (seq !== micConnectSeq) {
+    stream.getTracks().forEach((t) => t.stop());
+    return false;
+  }
+
+  const trackLabel = stream.getAudioTracks()[0]?.label || "";
+  if (!isRevert && isVirtualCableCapture(trackLabel)) {
+    stream.getTracks().forEach((t) => t.stop());
+    showToast("⚠️ That's the virtual cable's output — it carries what Discord hears. Pick your real microphone here, and set Discord's input to CABLE Output");
+    const fallback = lastGoodMicDeviceId;
+    micInputDeviceId = fallback;
+    const sel = document.getElementById("mic-input-device");
+    if (sel && fallback) sel.value = fallback;
+    updateSetting("micInputDeviceId", fallback);
+    if (fallback) return connectLiveMic(fallback, true);
+    return false;
+  }
+
+  liveMicStream = stream;
+  lastGoodMicDeviceId = deviceId || lastGoodMicDeviceId;
+  if (trackLabel && appSettings.micInputLabel !== trackLabel) updateSetting("micInputLabel", trackLabel);
   liveMicSource = audioCtx.createMediaStreamSource(liveMicStream);
 
   micGateGain = micGateGain || audioCtx.createGain();
   micMuteGain = micMuteGain || audioCtx.createGain();
   micGateGain.gain.value = 1;
-  gateLastTarget = null; // gain was just reset, so the gate must re-apply its state
+  gateLastTarget = null;
   micMuteGain.gain.value = micMuted ? 0 : 1;
 
+  micGateDelay = micGateDelay || audioCtx.createDelay(0.1);
+  micGateDelay.delayTime.value = noiseGateEnabled ? GATE_LOOKAHEAD_S : 0;
   try { micGateGain.disconnect(); } catch {}
-  try { micMuteGain.disconnect(); } catch {}
-
-  liveMicSource.connect(micGateGain).connect(micMuteGain);
-  // While Live Voice is running the raw mic must keep feeding the capture
-  // processor (not the virtual mic) — swapping mics mid-session used to
-  // silently break that routing.
-  if (liveVoiceActive && liveVoiceProcessor) micMuteGain.connect(liveVoiceProcessor);
-  else if (liveFxActive && livePitchNode) micMuteGain.connect(livePitchNode);
-  else micMuteGain.connect(micSendGain);
+  try { micGateDelay.disconnect(); } catch {}
+  liveMicSource.connect(micGateDelay).connect(micGateGain).connect(micMuteGain);
+  routeMicInput();
 
   setupMicMeter();
   setupNoiseGate();
+
+  if (audioCtx.state === "suspended") { try { await audioCtx.resume(); } catch {} }
+  await connectVirtualMic();
+  return true;
 }
 
 function setMicMuted(muted) {
@@ -712,13 +779,28 @@ function setupNoiseGate() {
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
       const rms = Math.sqrt(sum / data.length);
-      const target = rms > noiseGateThreshold ? 1 : 0;
+      const nowMs = performance.now();
+      if (!gateOpen && rms > noiseGateThreshold) gateOpen = true;
+      if (gateOpen) {
+        if (rms > noiseGateThreshold * GATE_CLOSE_RATIO) gateHoldUntil = nowMs + GATE_HOLD_MS;
+        else if (nowMs > gateHoldUntil) gateOpen = false;
+      }
+      const target = gateOpen ? 1 : 0;
+      if (!gateLookaheadOn && micGateDelay) {
+        micGateDelay.delayTime.setTargetAtTime(GATE_LOOKAHEAD_S, audioCtx.currentTime, 0.02);
+        gateLookaheadOn = true;
+      }
       if (target !== gateLastTarget) {
         gateLastTarget = target;
-        micGateGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.03);
+        micGateGain.gain.setTargetAtTime(target, audioCtx.currentTime, target ? 0.006 : 0.06);
       }
     } else {
       gateLastTarget = null;
+      gateOpen = false;
+      if (gateLookaheadOn && micGateDelay) {
+        micGateDelay.delayTime.setTargetAtTime(0, audioCtx.currentTime, 0.02);
+        gateLookaheadOn = false;
+      }
       if (micGateGain && Math.abs(micGateGain.gain.value - 1) > 0.001 && !noiseGateEnabled) {
         micGateGain.gain.setTargetAtTime(1, audioCtx.currentTime, 0.03);
       }
@@ -737,7 +819,7 @@ async function loadDevices() {
 
   const devices = await navigator.mediaDevices.enumerateDevices();
   const audioOut = devices.filter((d) => d.kind === "audiooutput");
-  const audioIn = devices.filter((d) => d.kind === "audioinput");
+  const audioIn = realMicInputs(devices);
 
   const outSel = document.getElementById("output-device");
   const inSel = document.getElementById("virtual-mic-device");
@@ -776,8 +858,7 @@ async function loadDevices() {
   const cableInput = savedCableInput || cableInputGuess;
   if (cableInput && inSel) inSel.value = cableInput.deviceId;
 
-  const savedIn = audioIn.find((d) => d.deviceId === appSettings.micInputDeviceId);
-  const defaultIn = savedIn || audioIn.find((d) => d.deviceId === "default") || audioIn[0];
+  const defaultIn = pickDefaultRealMic(audioIn, appSettings.micInputDeviceId, appSettings.micInputLabel);
   if (defaultIn && micInSel) micInSel.value = defaultIn.deviceId;
 
   outSel?.addEventListener("change", async () => {
@@ -794,7 +875,9 @@ async function loadDevices() {
   micInSel?.addEventListener("change", () => {
     micInputDeviceId = micInSel.value;
     updateSetting("micInputDeviceId", micInputDeviceId);
-    connectLiveMic(micInputDeviceId);
+    connectLiveMic(micInputDeviceId).then((ok) => {
+      if (ok && !virtualMicDeviceId) showToast("⚠️ Discord can't hear this yet — pick your CABLE Input under Virtual Mic Output and set Discord's input to CABLE Output");
+    });
   });
 
   if (defaultOut) { outputDevice = defaultOut.deviceId; await applyOutputSink(); }
@@ -809,6 +892,8 @@ async function loadDevices() {
   if (defaultIn) {
     micInputDeviceId = defaultIn.deviceId;
     await connectLiveMic(micInputDeviceId);
+  } else {
+    showToast("⚠️ No real microphone found — plug one in, then pick it under Live Microphone");
   }
 }
 
@@ -2494,8 +2579,33 @@ function bindRvcVoicesPanel() {
     const qualitySelect = document.getElementById("rvc-quality");
     if (qualitySelect) {
       qualitySelect.value = ["fast", "balanced", "high"].includes(appSettings.rvcQuality) ? appSettings.rvcQuality : "balanced";
-      qualitySelect.addEventListener("change", () => updateSetting("rvcQuality", qualitySelect.value));
+      qualitySelect.addEventListener("change", () => { updateSetting("rvcQuality", qualitySelect.value); refreshRvcTuning(); });
     }
+
+    // Voice Match Strength and Clarity sliders. Until one is moved it follows the
+    // chosen quality preset; moving it stores an override (null = use the preset).
+    // The preset numbers mirror QUALITY_PRESETS in sidecar/rvc-audio.js.
+    const RVC_PRESET_DEFAULTS = { fast: { index: 40, clarity: 0 }, balanced: { index: 50, clarity: 35 }, high: { index: 50, clarity: 60 } };
+    const rvcIndexSlider = document.getElementById("rvc-index-rate");
+    const rvcClaritySlider = document.getElementById("rvc-clarity");
+    const rvcTuningReset = document.getElementById("rvc-tuning-reset");
+    function refreshRvcTuning() {
+      if (!rvcIndexSlider || !rvcClaritySlider) return;
+      const preset = RVC_PRESET_DEFAULTS[appSettings.rvcQuality] || RVC_PRESET_DEFAULTS.balanced;
+      const idxSet = typeof appSettings.rvcIndexRate === "number";
+      const clSet = typeof appSettings.rvcClarity === "number";
+      const idx = idxSet ? Math.round(appSettings.rvcIndexRate * 100) : preset.index;
+      const cl = clSet ? Math.round(appSettings.rvcClarity * 100) : preset.clarity;
+      rvcIndexSlider.value = idx;
+      rvcClaritySlider.value = cl;
+      setLabel("rvc-index-rate-label", idx + "%" + (idxSet ? "" : " · preset"));
+      setLabel("rvc-clarity-label", cl + "%" + (clSet ? "" : " · preset"));
+      if (rvcTuningReset) rvcTuningReset.style.display = idxSet || clSet ? "" : "none";
+    }
+    rvcIndexSlider?.addEventListener("input", () => { updateSetting("rvcIndexRate", parseInt(rvcIndexSlider.value, 10) / 100); refreshRvcTuning(); });
+    rvcClaritySlider?.addEventListener("input", () => { updateSetting("rvcClarity", parseInt(rvcClaritySlider.value, 10) / 100); refreshRvcTuning(); });
+    rvcTuningReset?.addEventListener("click", () => { updateSetting("rvcIndexRate", null); updateSetting("rvcClarity", null); refreshRvcTuning(); });
+    refreshRvcTuning();
 
     const commandInput = document.getElementById("rvc-command-template");
     if (commandInput) {
@@ -3311,6 +3421,7 @@ async function exportMusicResult() {
    from the shared virtual-mic bus so Discord only hears the converted
    voice, not both layered together.
    ========================================================================= */
+let livePitchApplyTimer = null;
 function bindLiveVoicePage() {
   document.getElementById("live-start-btn")?.addEventListener("click", () => {
     return getVal("live-mode", "fx") === "fx" ? startLiveFx() : startLiveVoiceChanger();
@@ -3324,6 +3435,9 @@ function bindLiveVoicePage() {
     const v = parseInt(e.target.value, 10);
     document.getElementById("live-rvc-pitch-label").textContent =
       v === 0 ? "0 (Male ↔ Female)" : v > 0 ? `+${v} (toward Male)` : `${v} (toward Female)`;
+    if (!liveVoiceActive) return;
+    clearTimeout(livePitchApplyTimer);
+    livePitchApplyTimer = setTimeout(() => window.electronAPI.setLiveVoiceParams({ pitch: v }), 150);
   });
 
   document.getElementById("live-self-monitor-toggle")?.addEventListener("click", (e) => {
@@ -3387,10 +3501,16 @@ async function startLiveVoiceChanger() {
     return;
   }
 
-  // Mute raw mic into the shared virtual-mic bus so Discord doesn't hear
-  // both the raw and converted voice at once — the converted voice gets
-  // its own direct path instead, set up below.
-  try { micMuteGain.disconnect(micSendGain); } catch {}
+  try {
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+    await ensureLiveVoiceWorklet();
+  } catch (e) {
+    await window.electronAPI.stopLiveVoice();
+    statusEl.textContent = "⚠️ Couldn't start the capture engine";
+    statusEl.className = "rvc-backend-status missing";
+    showToast("⚠️ Couldn't start live voice: " + (e?.message || "audio engine error"));
+    return;
+  }
 
   liveVoiceOutGain = audioCtx.createGain();
   liveVoiceOutGain.gain.value = 1;
@@ -3401,10 +3521,14 @@ async function startLiveVoiceChanger() {
   liveVoiceNextPlayTime = 0;
   liveVoiceChunkQueue = [];
 
-  liveVoiceChunkMs = Math.min(2000, Math.max(400, parseInt(document.getElementById("live-chunk-size")?.value || "900", 10) || 900));
+  liveVoiceBaseChunkMs = Math.min(LIVE_VOICE_MAX_CHUNK_MS, Math.max(400, parseInt(document.getElementById("live-chunk-size")?.value || "900", 10) || 900));
+  liveVoiceChunkMs = liveVoiceBaseChunkMs;
+  liveVoiceFastStreak = 0;
+  liveVoiceSeq = 0;
+  liveVoiceLastPlayedSeq = -1;
   liveVoiceDelayAvg = 0;
   liveVoiceActive = true;
-  startLiveVoiceCapture(liveVoiceChunkMs);
+  await startLiveVoiceCapture();
 
   startBtn.style.display = "none";
   stopBtn.style.display = "inline-block";
@@ -3418,39 +3542,91 @@ async function startLiveVoiceChanger() {
 // renderer, so the main process needs no webm decode step.
 let liveVoiceChunkMs = 900;
 
-function startLiveVoiceCapture(chunkMs) {
-  const sampleRate = audioCtx.sampleRate;
-  const chunkSamples = Math.round((sampleRate * chunkMs) / 1000);
-  let pending = [];
-  let pendingSamples = 0;
+const LIVE_VOICE_OVERLAP_MS = 160;
+const LIVE_VOICE_SEND_RATE = 16000;
+const LIVE_VOICE_SILENCE_RMS = 0.004;
+const LIVE_VOICE_MAX_CHUNK_MS = 2000;
+let liveVoiceBaseChunkMs = 900;
+let liveVoiceFastStreak = 0;
+let liveVoiceSeq = 0;
+let liveVoiceLastPlayedSeq = -1;
+let liveVoiceWorkletReady = false;
 
-  liveVoiceProcessor = audioCtx.createScriptProcessor(2048, 1, 1);
-  // The processor only runs while connected to the destination; the gain at
-  // 0 keeps it silent so the raw mic is never played back.
+async function ensureLiveVoiceWorklet() {
+  if (liveVoiceWorkletReady) return;
+  await audioCtx.audioWorklet.addModule("live-capture-worklet.js");
+  liveVoiceWorkletReady = true;
+}
+
+function resampleMono(samples, fromRate, toRate) {
+  if (fromRate === toRate) return samples;
+  const ratio = fromRate / toRate;
+  const outLen = Math.floor(samples.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const a = i * ratio;
+    const b = a + ratio;
+    const ia = Math.floor(a);
+    const ib = Math.min(samples.length, Math.ceil(b));
+    let sum = 0;
+    let weight = 0;
+    for (let k = ia; k < ib; k++) {
+      const w = Math.min(k + 1, b) - Math.max(k, a);
+      sum += samples[k] * w;
+      weight += w;
+    }
+    out[i] = weight ? sum / weight : 0;
+  }
+  return out;
+}
+
+function windowRms(samples) {
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / Math.max(1, samples.length));
+}
+
+async function startLiveVoiceCapture() {
+  const sampleRate = audioCtx.sampleRate;
+  const acc = new Float32Array(Math.ceil(sampleRate * (LIVE_VOICE_MAX_CHUNK_MS / 1000) * 2));
+  let filled = 0;
+
+  liveVoiceProcessor = new AudioWorkletNode(audioCtx, "live-capture", {
+    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+    channelCount: 1, channelCountMode: "explicit", channelInterpretation: "speakers",
+  });
   liveVoiceSilentGain = audioCtx.createGain();
   liveVoiceSilentGain.gain.value = 0;
 
-  liveVoiceProcessor.onaudioprocess = (e) => {
+  liveVoiceProcessor.port.onmessage = (e) => {
     if (!liveVoiceActive) return;
-    const input = e.inputBuffer.getChannelData(0);
-    pending.push(new Float32Array(input));
-    pendingSamples += input.length;
-    if (pendingSamples < chunkSamples) return;
+    const block = e.data;
+    if (filled + block.length > acc.length) filled = 0;
+    acc.set(block, filled);
+    filled += block.length;
 
-    const merged = new Float32Array(pendingSamples);
-    let offset = 0;
-    for (const part of pending) { merged.set(part, offset); offset += part.length; }
-    pending = [];
-    pendingSamples = 0;
+    const windowSamples = Math.round((sampleRate * liveVoiceChunkMs) / 1000);
+    if (filled < windowSamples) return;
+    const hopSamples = Math.max(1, windowSamples - Math.round((sampleRate * LIVE_VOICE_OVERLAP_MS) / 1000));
 
+    const windowData = acc.slice(0, windowSamples);
+    acc.copyWithin(0, hopSamples, filled);
+    filled -= hopSamples;
+
+    const seq = liveVoiceSeq++;
+    if (windowRms(windowData) < LIVE_VOICE_SILENCE_RMS) return;
+
+    const down = resampleMono(windowData, sampleRate, LIVE_VOICE_SEND_RATE);
     enqueueLiveVoiceChunk({
-      wavBase64: encodeWavBase64(merged, sampleRate),
+      seq,
+      wavBase64: encodeWavBase64(down, LIVE_VOICE_SEND_RATE),
       capturedAt: performance.now(),
-      durationMs: (merged.length / sampleRate) * 1000,
+      durationMs: (windowData.length / sampleRate) * 1000,
+      hopMs: (hopSamples / sampleRate) * 1000,
     });
   };
 
-  micMuteGain.connect(liveVoiceProcessor);
+  routeMicInput();
   liveVoiceProcessor.connect(liveVoiceSilentGain);
   liveVoiceSilentGain.connect(audioCtx.destination);
 }
@@ -3492,7 +3668,7 @@ async function stopLiveVoiceChanger() {
   liveVoiceActive = false;
 
   if (liveVoiceProcessor) {
-    liveVoiceProcessor.onaudioprocess = null;
+    liveVoiceProcessor.port.onmessage = null;
     try { micMuteGain?.disconnect(liveVoiceProcessor); } catch {}
     try { liveVoiceProcessor.disconnect(); } catch {}
   }
@@ -3504,8 +3680,7 @@ async function stopLiveVoiceChanger() {
   try { liveVoiceOutGain?.disconnect(); } catch {}
   liveVoiceOutGain = null;
 
-  // Restore normal mic routing into the shared virtual-mic bus.
-  try { micMuteGain.connect(micSendGain); } catch {}
+  routeMicInput();
 
   await window.electronAPI.stopLiveVoice();
 
@@ -3527,12 +3702,39 @@ async function enqueueLiveVoiceChunk(chunk) {
   liveVoiceProcessing = true;
   try {
     while (liveVoiceChunkQueue.length) {
+      while (liveVoiceChunkQueue.length > 1) liveVoiceChunkQueue.shift();
       const next = liveVoiceChunkQueue.shift();
-      if (liveVoiceChunkQueue.length > 2) continue;
       await processLiveVoiceChunk(next);
     }
   } finally {
     liveVoiceProcessing = false;
+  }
+}
+
+function applyChunkFades(audioBuffer, fadeInSec, fadeOutSec) {
+  const sr = audioBuffer.sampleRate;
+  const total = audioBuffer.length;
+  const inN = Math.min(total, Math.round(fadeInSec * sr));
+  const outN = Math.min(total, Math.round(fadeOutSec * sr));
+  for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
+    const d = audioBuffer.getChannelData(c);
+    for (let i = 0; i < inN; i++) d[i] *= 0.5 - 0.5 * Math.cos((Math.PI * i) / inN);
+    for (let i = 0; i < outN; i++) d[total - 1 - i] *= 0.5 - 0.5 * Math.cos((Math.PI * i) / outN);
+  }
+}
+
+function adaptLiveVoiceChunkSize(convertMs, hopMs) {
+  if (convertMs > hopMs * 0.85) {
+    liveVoiceChunkMs = Math.min(LIVE_VOICE_MAX_CHUNK_MS, liveVoiceChunkMs + 150);
+    liveVoiceFastStreak = 0;
+  } else if (convertMs < hopMs * 0.45 && liveVoiceChunkMs > liveVoiceBaseChunkMs) {
+    liveVoiceFastStreak++;
+    if (liveVoiceFastStreak >= 12) {
+      liveVoiceChunkMs = Math.max(liveVoiceBaseChunkMs, liveVoiceChunkMs - 100);
+      liveVoiceFastStreak = 0;
+    }
+  } else {
+    liveVoiceFastStreak = 0;
   }
 }
 
@@ -3542,27 +3744,32 @@ async function processLiveVoiceChunk(chunk) {
     const startedAt = performance.now();
     const result = await window.electronAPI.convertLiveVoiceChunk({ audioBase64: chunk.wavBase64, format: "wav" });
     const convertMs = performance.now() - startedAt;
-    if (!liveVoiceActive || !liveVoiceOutGain) return; // stopped while awaiting
+    if (!liveVoiceActive || !liveVoiceOutGain) return;
     if (!result.success) { console.warn("[LiveVoice] chunk failed:", result.error); return; }
 
     const arrBuf = base64ToArrayBuffer(result.audioBase64);
     const audioBuffer = await audioCtx.decodeAudioData(arrBuf);
     if (!liveVoiceActive || !liveVoiceOutGain) return;
 
+    const overlapSec = LIVE_VOICE_OVERLAP_MS / 1000;
+    const now = audioCtx.currentTime;
+    const contiguous = chunk.seq === liveVoiceLastPlayedSeq + 1;
+    let startAt = liveVoiceNextPlayTime;
+    const late = startAt < now + 0.03;
+    if (late) startAt = now + 0.05;
+    const fadeIn = contiguous && !late ? overlapSec : 0.006;
+    applyChunkFades(audioBuffer, fadeIn, overlapSec);
+
     const src = audioCtx.createBufferSource();
     src.buffer = audioBuffer;
     src.connect(liveVoiceOutGain);
-    const now = audioCtx.currentTime;
-    if (liveVoiceNextPlayTime < now) liveVoiceNextPlayTime = now + 0.05;
-    const startAt = liveVoiceNextPlayTime;
     src.start(startAt);
-    liveVoiceNextPlayTime += audioBuffer.duration;
+    liveVoiceNextPlayTime = startAt + Math.max(0.05, audioBuffer.duration - overlapSec);
+    liveVoiceLastPlayedSeq = chunk.seq;
 
-    // Worst-case delay for the first sample in this chunk: time spent
-    // capturing it, waiting in the queue and converting, plus any wait
-    // before its scheduled playback slot.
     const delayMs = chunk.durationMs + (performance.now() - chunk.capturedAt) + Math.max(0, (startAt - now) * 1000);
-    updateLiveVoiceStatus(delayMs, convertMs, chunk.durationMs);
+    adaptLiveVoiceChunkSize(convertMs, chunk.hopMs);
+    updateLiveVoiceStatus(delayMs, convertMs, chunk.hopMs);
   } catch (e) {
     console.warn("[LiveVoice] chunk processing error:", e);
   }
@@ -3571,12 +3778,12 @@ async function processLiveVoiceChunk(chunk) {
 // Shows the measured delay next to the "Live" badge and warns when the
 // machine can't convert a chunk faster than the chunk's own length (in which
 // case the delay keeps growing and chunks start getting dropped).
-function updateLiveVoiceStatus(delayMs, convertMs, chunkMs) {
+function updateLiveVoiceStatus(delayMs, convertMs, hopMs) {
   const statusEl = document.getElementById("live-status");
   if (!statusEl || !liveVoiceActive) return;
   liveVoiceDelayAvg = liveVoiceDelayAvg ? liveVoiceDelayAvg * 0.7 + delayMs * 0.3 : delayMs;
   const secs = (liveVoiceDelayAvg / 1000).toFixed(1);
-  if (convertMs > chunkMs) {
+  if (convertMs > hopMs) {
     statusEl.textContent = `⚠️ Live · ~${secs}s delay. Too slow for this chunk size, try Smooth or use a GPU`;
     statusEl.className = "rvc-backend-status missing";
   } else {
@@ -4555,7 +4762,7 @@ async function refreshDevicesAfterChange() {
   let devices;
   try { devices = await navigator.mediaDevices.enumerateDevices(); } catch { return; }
   const audioOut = devices.filter((d) => d.kind === "audiooutput");
-  const audioIn = devices.filter((d) => d.kind === "audioinput");
+  const audioIn = realMicInputs(devices);
   const inSel = document.getElementById("virtual-mic-device");
 
   fillDeviceSelect(document.getElementById("output-device"), audioOut, "Speaker");
@@ -4564,7 +4771,7 @@ async function refreshDevicesAfterChange() {
   fillDeviceSelect(micSel, audioIn, "Mic");
   if (micInputDeviceId && audioIn.length && !audioIn.some((d) => d.deviceId === micInputDeviceId)) {
     // The chosen mic was unplugged: its stream has ended, so reconnect to another one.
-    const fallback = audioIn.find((d) => d.deviceId === "default") || audioIn[0];
+    const fallback = pickDefaultRealMic(audioIn);
     micInputDeviceId = fallback.deviceId;
     if (micSel) micSel.value = fallback.deviceId;
     showToast("⚠️ Microphone disconnected. Switched to " + (fallback.label || "the default mic"));
@@ -4820,7 +5027,7 @@ function bindLiveFxControls() {
     if (VOICE_PRESETS[appSettings.liveFxPreset]) presetSel.value = appSettings.liveFxPreset;
     presetSel.addEventListener("change", () => {
       updateSetting("liveFxPreset", presetSel.value);
-      if (liveFxActive) { teardownLiveFxChain(); connectLiveFxChain(); }
+      if (liveFxActive) swapLiveFxChain();
     });
   }
   if (pitch) {
@@ -4835,7 +5042,18 @@ function bindLiveFxControls() {
       showLabel();
       updateSetting("liveFxPitch", parseInt(pitch.value, 10) || 0);
       // Only the ratio changes, so update it in place instead of rebuilding nodes mid-drag.
-      if (liveFxActive && livePitchNode) livePitchNode.parameters.get("ratio").value = liveFxParams().rate;
+      if (liveFxActive && livePitchNode) livePitchNode.parameters.get("ratio").setTargetAtTime(liveFxParams().rate, audioCtx.currentTime, 0.03);
+    });
+  }
+  const levelToggle = document.getElementById("live-fx-level-toggle");
+  if (levelToggle) {
+    liveFxAutoLevel = appSettings.liveFxAutoLevel !== false;
+    levelToggle.classList.toggle("active", liveFxAutoLevel);
+    levelToggle.addEventListener("click", () => {
+      liveFxAutoLevel = levelToggle.classList.toggle("active");
+      updateSetting("liveFxAutoLevel", liveFxAutoLevel);
+      liveFxLevelSmooth = 1;
+      if (!liveFxAutoLevel && liveFxLevel) liveFxLevel.gain.setTargetAtTime(1, audioCtx.currentTime, 0.1);
     });
   }
   document.getElementById("live-fx-monitor-toggle")?.addEventListener("click", (e) => {
@@ -4859,22 +5077,117 @@ function bindLiveFxControls() {
   }
 }
 
-function connectLiveFxChain() {
+function liveFxRms(analyser, buf) {
+  analyser.getFloatTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+  return Math.sqrt(sum / buf.length);
+}
+
+function startLiveFxLevelMatcher() {
+  stopLiveFxLevelMatcher();
+  liveFxInAnalyser = audioCtx.createAnalyser();
+  liveFxInAnalyser.fftSize = 1024;
+  liveFxOutAnalyser = audioCtx.createAnalyser();
+  liveFxOutAnalyser.fftSize = 1024;
+  micMuteGain.connect(liveFxInAnalyser);
+  liveFxMix.connect(liveFxOutAnalyser);
+  const a = new Float32Array(1024);
+  const b = new Float32Array(1024);
+  liveFxLevelSmooth = 1;
+  liveFxLevelTimer = setInterval(() => {
+    if (!liveFxActive || !liveFxAutoLevel || !liveFxLevel) return;
+    const ri = liveFxRms(liveFxInAnalyser, a);
+    const ro = liveFxRms(liveFxOutAnalyser, b);
+    if (ri < 0.008 || ro < 0.002) return;
+    const target = Math.min(2.8, Math.max(0.35, ri / ro));
+    liveFxLevelSmooth = liveFxLevelSmooth * 0.85 + target * 0.15;
+    liveFxLevel.gain.setTargetAtTime(liveFxLevelSmooth, audioCtx.currentTime, 0.15);
+  }, 100);
+}
+
+function stopLiveFxLevelMatcher() {
+  if (liveFxLevelTimer) clearInterval(liveFxLevelTimer);
+  liveFxLevelTimer = null;
+  try { micMuteGain?.disconnect(liveFxInAnalyser); } catch {}
+  try { liveFxMix?.disconnect(liveFxOutAnalyser); } catch {}
+  liveFxInAnalyser = null;
+  liveFxOutAnalyser = null;
+}
+
+function buildLiveFxOutputStage() {
+  liveFxMix = audioCtx.createGain();
+  liveFxLevel = audioCtx.createGain();
+  liveFxLevel.gain.value = 1;
+  liveFxLimiter = audioCtx.createDynamicsCompressor();
+  liveFxLimiter.threshold.value = -4;
+  liveFxLimiter.knee.value = 0;
+  liveFxLimiter.ratio.value = 20;
+  liveFxLimiter.attack.value = 0.002;
+  liveFxLimiter.release.value = 0.12;
+  liveFxMix.connect(liveFxLevel).connect(liveFxLimiter).connect(liveFxOut);
+}
+
+function attachLiveFxChain(fadeInSec) {
   const v = liveFxParams();
   const chain = buildVoiceChain(v);
-  livePitchNode.parameters.get("ratio").value = v.rate;
+  const fade = audioCtx.createGain();
+  const now = audioCtx.currentTime;
+  fade.gain.setValueAtTime(fadeInSec > 0 ? 0 : 1, now);
+  if (fadeInSec > 0) fade.gain.linearRampToValueAtTime(1, now + fadeInSec);
   livePitchNode.connect(chain.input);
-  chain.output.connect(liveFxOut);
-  chain.start(audioCtx.currentTime);
-  liveFxOut.gain.setTargetAtTime(v.volumeMult, audioCtx.currentTime, 0.01);
-  liveFxChain = chain;
+  chain.output.connect(fade);
+  fade.connect(liveFxMix);
+  chain.start(now);
+  livePitchNode.parameters.get("ratio").setTargetAtTime(v.rate, now, fadeInSec > 0 ? 0.03 : 0.001);
+  liveFxOut.gain.setTargetAtTime(v.volumeMult, now, 0.03);
+  return { chain, fade };
+}
+
+function detachLiveFxChain(entry, fadeOutSec) {
+  if (!entry) return;
+  const { chain, fade } = entry;
+  const now = audioCtx.currentTime;
+  try { fade.gain.cancelScheduledValues(now); fade.gain.setValueAtTime(fade.gain.value, now); fade.gain.linearRampToValueAtTime(0, now + fadeOutSec); } catch {}
+  try { livePitchNode?.disconnect(chain.input); } catch {}
+  setTimeout(() => {
+    try { chain.output.disconnect(); } catch {}
+    try { fade.disconnect(); } catch {}
+    try { chain.stop(); } catch {}
+  }, Math.max(60, fadeOutSec * 1000 + 40));
+}
+
+function connectLiveFxChain() {
+  buildLiveFxOutputStage();
+  const entry = attachLiveFxChain(0);
+  liveFxChain = entry.chain;
+  liveFxChainFade = entry.fade;
+  startLiveFxLevelMatcher();
+}
+
+function swapLiveFxChain() {
+  if (!liveFxActive || !livePitchNode || !liveFxMix) return;
+  const old = liveFxChain ? { chain: liveFxChain, fade: liveFxChainFade } : null;
+  const entry = attachLiveFxChain(0.05);
+  liveFxChain = entry.chain;
+  liveFxChainFade = entry.fade;
+  detachLiveFxChain(old, 0.05);
+  liveFxLevelSmooth = 1;
+  if (liveFxLevel) liveFxLevel.gain.setTargetAtTime(1, audioCtx.currentTime, 0.1);
 }
 
 function teardownLiveFxChain() {
+  stopLiveFxLevelMatcher();
   try { livePitchNode?.disconnect(); } catch {}
-  try { liveFxChain?.output.disconnect(); } catch {}
-  try { liveFxChain?.stop(); } catch {}
+  if (liveFxChain) detachLiveFxChain({ chain: liveFxChain, fade: liveFxChainFade }, 0.01);
   liveFxChain = null;
+  liveFxChainFade = null;
+  try { liveFxMix?.disconnect(); } catch {}
+  try { liveFxLevel?.disconnect(); } catch {}
+  try { liveFxLimiter?.disconnect(); } catch {}
+  liveFxMix = null;
+  liveFxLevel = null;
+  liveFxLimiter = null;
 }
 
 async function startLiveFx() {

@@ -83,6 +83,8 @@ fn settings_defaults() -> Map<String, Value> {
         "queueMode": false,
         "activeRvcVoice": null,
         "rvcQuality": "balanced",
+        "rvcIndexRate": null,
+        "rvcClarity": null,
         "uiStyle": "standard",
         "setupWizardDone": false,
         "rvcPythonCommand": if cfg!(windows) { "python" } else { "python3" },

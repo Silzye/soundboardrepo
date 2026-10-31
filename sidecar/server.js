@@ -172,7 +172,7 @@ const embeddedPythonExe = path.join(embeddedPythonDir, "python.exe");
 // 3.10 is the version rvc-python targets (see RVC_PYTHON_* below). 3.10.11 is the
 // last 3.10 release python.org publishes an embeddable zip for.
 const PYTHON_EMBED_VERSION = "3.10.11";
-const PYTHON_EMBED_URL = `https://www.python.org/ftp/python/${PYTHON_EMBED_VERSION}/python-${PYTHON_EMBED_VERSION}-embed-amd64.zip`;
+const PYTHON_INSTALLER_URL = `https://www.python.org/ftp/python/${PYTHON_EMBED_VERSION}/python-${PYTHON_EMBED_VERSION}-amd64.exe`;
 const GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py";
 
 function extractZipWindows(zipPath, destDir) {
@@ -499,6 +499,8 @@ const SETTINGS_DEFAULTS = {
   // automatically.
   rvcCommandTemplate: "{python} -m rvc_python cli -i {input} -o {output} -mp {model} -ip {index} -pi {pitch}",
   rvcQuality: "balanced", // fast | balanced | high (see rvc-audio.js)
+  rvcIndexRate: null,     // 0..1 voice-match strength; null = use the preset's
+  rvcClarity: null,       // 0..1 top-end restoration; null = use the preset's
 };
 
 function readSettingsFile() {
@@ -1001,10 +1003,20 @@ ipcMain.handle("cancel-rvc-conversion", (_, soundId) => {
 });
 
 // One cached result per sound + voice + pitch + vocal-separation + quality
-// preset, so switching the quality setting converts again instead of serving
-// a file made with the old settings.
-function rvcCacheBase(soundId, voiceId, uiPitch, separateVocals, quality) {
-  return `${soundId}__${voiceId}__${uiPitch}${separateVocals ? "_sep" : ""}__${quality}`;
+// preset + the two tuning sliders + the voice model file itself, so changing any
+// of them (or replacing the .pth/.index with a retrained one) converts again
+// instead of serving a file made with the old settings.
+function rvcCacheBase(soundId, voiceId, uiPitch, separateVocals, quality, tag) {
+  return `${soundId}__${voiceId}__${uiPitch}${separateVocals ? "_sep" : ""}__${quality}${tag ? "-" + tag : ""}`;
+}
+
+function rvcCacheTag(tuning, ...files) {
+  let fp = "";
+  for (const f of files) {
+    try { const st = fs.statSync(f); fp += `${f === files[0] ? "m" : "x"}${st.size}:${Math.floor(st.mtimeMs)}|`; } catch { fp += "-|"; }
+  }
+  const h = crypto.createHash("md5").update(fp).digest("hex").slice(0, 6);
+  return `i${Math.round(tuning.indexRate * 100)}c${Math.round(tuning.clarity * 100)}-${h}`;
 }
 
 async function runRvcConversion({ inputPath, soundId, voiceId, pitch, separateVocals }) {
@@ -1026,9 +1038,11 @@ async function runRvcConversion({ inputPath, soundId, voiceId, pitch, separateVo
   // this is the one place that mapping lives.
   const uiPitch = Math.round(pitch || 0);
   const cliPitch = -uiPitch;
-  const quality = rvcAudio.normalizeQuality(readSettingsFile().rvcQuality);
+  const savedSettings = readSettingsFile();
+  const quality = rvcAudio.normalizeQuality(savedSettings.rvcQuality);
   const preset = rvcAudio.QUALITY_PRESETS[quality];
-  const cacheBase = rvcCacheBase(soundId, voiceId, uiPitch, separateVocals, quality);
+  const tuning = rvcAudio.resolveTuning(quality, savedSettings);
+  const cacheBase = rvcCacheBase(soundId, voiceId, uiPitch, separateVocals, quality, rvcCacheTag(tuning, modelPath, indexPath));
   const outputPath = path.join(rvcConvertedDir, `${cacheBase}.wav`);
 
   // A cached file only counts if it is a real result. A crash mid-write used
@@ -1105,8 +1119,8 @@ async function runRvcConversion({ inputPath, soundId, voiceId, pitch, separateVo
     report("Checking the voice engine");
     const device = await resolveRvcDevice(python);
     console.log(`[RVC] Device: ${device || "(rvc-python default)"}`);
-    const qualityArgs = await rvcAudio.rvcQualityArgs(python, quality, { hasIndex, template });
-    console.log(`[RVC] Quality: ${quality}${qualityArgs ? ` (${qualityArgs.trim()})` : " (no tunable flags in this rvc-python)"}`);
+    const qualityArgs = await rvcAudio.rvcQualityArgs(python, quality, { hasIndex, template, indexRate: tuning.indexRate });
+    console.log(`[RVC] Quality: ${quality}, index rate ${tuning.indexRate}, clarity ${tuning.clarity}${qualityArgs ? ` (${qualityArgs.trim()})` : " (no tunable flags in this rvc-python)"}`);
     const command = buildRvcCommand(template, {
       python,
       device,
@@ -1169,9 +1183,9 @@ async function runRvcConversion({ inputPath, soundId, voiceId, pitch, separateVo
 
     // Level-match to the source, strip rumble, and limit peaks. If this step
     // fails the raw conversion is kept as it was.
-    if (preset.polish) {
+    if (preset.polish || tuning.clarity > 0) {
       checkCancelled();
-      if (await rvcAudio.polishRvcOutput(convertedVocalsPath, referencePath, polishedPath)) {
+      if (await rvcAudio.polishRvcOutput(convertedVocalsPath, referencePath, polishedPath, { clarity: tuning.clarity })) {
         fs.renameSync(polishedPath, convertedVocalsPath);
       }
     }
@@ -1208,8 +1222,8 @@ ipcMain.handle("clear-rvc-conversion", (_, { soundId, voiceId, pitch, separateVo
     const uiPitch = Math.round(pitch || 0);
     const stem = `${soundId}__${voiceId}__${uiPitch}${separateVocals ? "_sep" : ""}`;
     const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // One cached file per quality preset, plus the name used before presets existed.
-    const pattern = new RegExp(`^${esc(stem)}(__(${Object.keys(rvcAudio.QUALITY_PRESETS).join("|")}))?\\.wav$`);
+    // One cached file per quality/tuning combination, plus the names used by older versions.
+    const pattern = new RegExp(`^${esc(stem)}(__(${Object.keys(rvcAudio.QUALITY_PRESETS).join("|")})(-[a-z0-9]+)*)?\\.wav$`);
     for (const name of fs.readdirSync(rvcConvertedDir)) {
       if (pattern.test(name)) { try { fs.unlinkSync(path.join(rvcConvertedDir, name)); } catch {} }
     }
@@ -1458,47 +1472,37 @@ ipcMain.handle("install-bundled-python", async () => {
   const quotedExe = `"${embeddedPythonExe}"`;
   const TOTAL = 3;
   const getPipPath = path.join(embeddedPythonDir, "get-pip.py");
+  const installerPath = path.join(userDataPath, "python_installer.exe");
   try {
-    // 1. Python itself. A leftover copy of the wrong version (e.g. from an
-    // older app release) is removed so it can't silently break the install.
     sendSetupProgress(1, TOTAL, "Checking Python");
     let info = fs.existsSync(embeddedPythonExe) ? await getPythonInfo(quotedExe) : { found: false };
-    if (info.found && !info.compatible) {
-      log(`[Python] Found Python ${info.versionText} from an earlier setup — replacing it...\n`);
+    const hasHeaders = fs.existsSync(path.join(embeddedPythonDir, "include", "Python.h"));
+    if (info.found && (!info.compatible || !hasHeaders)) {
+      log(`[Python] Replacing the Python from an earlier setup (${info.versionText}) with a full install that can build packages...\n`);
       fs.rmSync(embeddedPythonDir, { recursive: true, force: true });
       info = { found: false };
     }
     if (!info.found) {
-      fs.mkdirSync(embeddedPythonDir, { recursive: true });
-      log("[Python] Downloading a private copy of Python (~10MB)...\n");
-      const zipPath = path.join(userDataPath, "python_embed.zip");
-      await downloadWithProgress(PYTHON_EMBED_URL, zipPath, session, 1, TOTAL, "Downloading Python");
+      log("[Python] Downloading Python (~25MB)...\n");
+      await downloadWithProgress(PYTHON_INSTALLER_URL, installerPath, session, 1, TOTAL, "Downloading Python");
       throwIfCancelled(session);
-      sendSetupProgress(1, TOTAL, "Extracting Python");
-      log("[Python] Extracting...\n");
-      await extractZipWindows(zipPath, embeddedPythonDir);
-      try { fs.unlinkSync(zipPath); } catch {}
+      sendSetupProgress(1, TOTAL, "Installing Python");
+      log("[Python] Installing Python for your user only (no admin needed)...\n");
+      await runStreaming(
+        `"${installerPath}" /quiet InstallAllUsers=0 TargetDir="${embeddedPythonDir}" Include_launcher=0 Include_test=0 Include_doc=0 Include_tcltk=0 Include_pip=1 PrependPath=0 Shortcuts=0 AssociateFiles=0`,
+        log, "Python installer", session
+      );
+      if (!fs.existsSync(embeddedPythonExe)) throw new Error("The Python installer finished but python.exe wasn't created. Install Python 3.10 yourself, then use Install Backend.");
     } else {
       log("[Python] Private Python already installed — skipping download.\n");
     }
     throwIfCancelled(session);
-    enableEmbeddedSitePackages();
 
-    // 2. pip
-    sendSetupProgress(2, TOTAL, "Setting up pip");
-    if (!(await execPython(quotedExe, "-m pip --version")).ok) {
-      log("[Python] Installing pip...\n");
-      await downloadWithProgress(GET_PIP_URL, getPipPath, session, 2, TOTAL, "Downloading pip installer");
-      throwIfCancelled(session);
-      sendSetupProgress(2, TOTAL, "Installing pip");
-      await runStreaming(`${quotedExe} "${getPipPath}" --no-warn-script-location`, log, "pip bootstrap", session);
-    } else {
-      log("[Python] pip already installed — skipping.\n");
-    }
+    await ensureMsvcBuildTools(session, log, 2, TOTAL);
     throwIfCancelled(session);
 
-    // 3. Backend packages
     log("[Python] Installing AI Voices backend (rvc-python + demucs)...\n");
+    await runPip(quotedExe, "install --upgrade pip setuptools wheel", session, 3, TOTAL, "Updating pip");
     await runPip(quotedExe, `install --upgrade ${RVC_BACKEND_PACKAGES.join(" ")}`, session, 3, TOTAL, "Installing AI Voices packages");
 
     // Point the app at this bundled interpreter from now on.
@@ -1514,7 +1518,7 @@ ipcMain.handle("install-bundled-python", async () => {
     if (session.cancelled || e?.cancelled) log("[Python] Setup cancelled — run it again to pick up where it left off.\n");
     return setupFailure(e, session, "Bundled Python setup failed");
   } finally {
-    try { fs.unlinkSync(getPipPath); } catch {}
+    try { fs.unlinkSync(installerPath); } catch {}
     endSetupSession(session);
   }
 });
@@ -1545,6 +1549,36 @@ async function getRvcBackendStatus() {
 }
 ipcMain.handle("check-rvc-backend", () => getRvcBackendStatus());
 
+const VSWHERE_PATH = path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe");
+const BUILD_TOOLS_URL = "https://visualstudio.microsoft.com/visual-cpp-build-tools/";
+
+async function hasMsvcBuildTools() {
+  if (!fs.existsSync(VSWHERE_PATH)) return false;
+  const r = await execPython(`"${VSWHERE_PATH}"`, "-products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath", 20000);
+  return !!(r.ok && r.out && r.out.trim());
+}
+
+async function ensureMsvcBuildTools(session, log, step = 1, total = 2) {
+  if (process.platform !== "win32") return;
+  if (await hasMsvcBuildTools()) return;
+  log("[Build Tools] C++ build tools are missing (needed to compile fairseq). Installing them — accept the Windows admin prompt and expect a large download...\n");
+  sendSetupProgress(step, total, "Installing Microsoft C++ Build Tools (large download)");
+  try {
+    await runStreaming(
+      'winget install --id Microsoft.VisualStudio.2022.BuildTools -e --accept-package-agreements --accept-source-agreements --override "--passive --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"',
+      log, "Build Tools install", session
+    );
+  } catch (e) {
+    if (e?.cancelled) throw e;
+    log(`[Build Tools] Automatic install failed: ${e?.message || e}\n`);
+  }
+  throwIfCancelled(session);
+  if (!(await hasMsvcBuildTools())) {
+    throw new Error(`Microsoft C++ Build Tools are required to install the AI Voices backend. Install them from ${BUILD_TOOLS_URL} (select "Desktop development with C++"), restart the app, then try again.`);
+  }
+  log("[Build Tools] Installed.\n");
+}
+
 // Installs/updates the backend via pip, streaming progress back to the
 // renderer so this doesn't feel like dropping to a terminal.
 ipcMain.handle("install-rvc-backend", async () => {
@@ -1566,7 +1600,9 @@ ipcMain.handle("install-rvc-backend", async () => {
         `(expected 3.${RVC_PYTHON_MIN_MINOR}–3.${RVC_PYTHON_MAX_MINOR}). Trying anyway...\n`
       );
     }
-    await runPip(python, `install --upgrade ${RVC_BACKEND_PACKAGES.join(" ")}`, session, 1, 1, "Installing AI Voices packages");
+    await ensureMsvcBuildTools(session, sendBackendLog);
+    await runPip(python, `install --upgrade pip setuptools wheel`, session, 2, 2, "Updating pip");
+    await runPip(python, `install --upgrade ${RVC_BACKEND_PACKAGES.join(" ")}`, session, 2, 2, "Installing AI Voices packages");
     rvcDeviceCache.clear(); // torch may have changed, so detect the device again
     return { success: true };
   } catch (e) {
@@ -1874,6 +1910,22 @@ ipcMain.handle("live-voice-start", async (_, { voiceId, pitch }) => {
   } catch (e) {
     stopLiveVoiceProcess();
     return { success: false, error: e?.message || "Couldn't start the live voice server" };
+  }
+});
+
+ipcMain.handle("live-voice-set-params", async (_, { pitch }) => {
+  if (!liveVoicePort) return { success: false, error: "Live voice server isn't running" };
+  try {
+    const res = await fetch(`http://127.0.0.1:${liveVoicePort}/params`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ params: { f0up_key: -Math.round(Number(pitch) || 0) } }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`Params update failed: ${res.status}`);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e?.message || "Couldn't update pitch" };
   }
 });
 
