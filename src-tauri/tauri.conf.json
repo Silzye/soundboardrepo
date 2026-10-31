@@ -60,7 +60,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQTdGOEI3QTkyQ0I2QzgKUldUSXRpeXB0L2luMEF0UU81bUpMdWg4dFduYnFPYXI4QkNpcTI3Q3Q3SjduV3VvdnJESGN6K3QK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IE",
       "endpoints": [
         "https://github.com/Silzye/soundboardrepo/releases/latest/download/latest.json"
       ],
