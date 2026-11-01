@@ -60,7 +60,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5ClJXUlRZMEl5K09CVko1WlZIejh0WSt2M0o5QjI5anhLYVl0SjFPQXcwOW91d3Rmb3N5RUFBQkFBQUFBQUFBQUFBQUlBQUFBQWJxUDFYY2dZblljWHFqdlJsc1BIdTFaRC9MdHZWaUtkYnV6OVFIUWwyNWgrR0pMc0VudlRFU0JNMkxTUThKeEk5cStqTWt6WEVYTjJVSWsrc1JaaGxZcVZUdTFIVlk4eG4vcmg4SldIYkNmdndOQkpWc1NoRWtMT1U3THZBT0RmMml1NWZTSWFBMWM9Cg==",
       "endpoints": [
         "https://github.com/Silzye/soundboardrepo/releases/latest/download/latest.json"
       ],
